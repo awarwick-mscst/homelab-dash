@@ -22,17 +22,20 @@ const navItems = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [darkMode, setDarkMode] = useState(() => {
-    if (typeof document !== 'undefined') {
-      return document.documentElement.classList.contains('dark')
-    }
-    return false
+    const saved = localStorage.getItem('theme')
+    const isDark = saved ? saved === 'dark' : true // default dark
+    if (isDark) document.documentElement.classList.add('dark')
+    else document.documentElement.classList.remove('dark')
+    return isDark
   })
   const location = useLocation()
   const { user, logout } = useAuth()
 
   const toggleDarkMode = () => {
+    const next = !darkMode
     document.documentElement.classList.toggle('dark')
-    setDarkMode(!darkMode)
+    localStorage.setItem('theme', next ? 'dark' : 'light')
+    setDarkMode(next)
   }
 
   return (
@@ -72,6 +75,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
         <div className="absolute bottom-0 w-full p-3 border-t">
+          <p className="text-[10px] text-muted-foreground/50 mb-2">v0.1.0</p>
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground">{user?.username}</span>
             <div className="flex gap-1">

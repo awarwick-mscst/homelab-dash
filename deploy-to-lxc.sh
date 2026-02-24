@@ -20,9 +20,8 @@ if [[ -z "$HOST" ]]; then
     exit 1
 fi
 
-SSH_OPTS="-o StrictHostKeyChecking=accept-new -p $PORT"
-SSH="ssh $SSH_OPTS $USER@$HOST"
-SCP="scp $SSH_OPTS -r"
+SSH="ssh -o StrictHostKeyChecking=accept-new -p $PORT $USER@$HOST"
+SCP="scp -o StrictHostKeyChecking=accept-new -P $PORT -r"
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -59,7 +58,7 @@ find "$STAGING/homelab-dash" -type d -name "__pycache__" -exec rm -rf {} + 2>/de
 
 # Create tarball
 ARCHIVE="$STAGING/homelab-dash.tar.gz"
-tar -czf "$ARCHIVE" -C "$STAGING" homelab-dash
+tar -czf "$ARCHIVE" --owner=0 --group=0 -C "$STAGING" homelab-dash
 
 # --- 3. Upload to LXC ---
 echo "[3/5] Uploading to $HOST..."
@@ -68,7 +67,7 @@ $SCP "$ARCHIVE" "$USER@$HOST:/tmp/homelab-dash.tar.gz"
 
 # --- 4. Extract on remote ---
 echo "[4/5] Extracting on remote..."
-$SSH "tar -xzf /tmp/homelab-dash.tar.gz -C /opt/ && rm /tmp/homelab-dash.tar.gz"
+$SSH "tar -xzf /tmp/homelab-dash.tar.gz --no-same-owner -C /opt/ && rm /tmp/homelab-dash.tar.gz"
 
 # --- 5. Run installer ---
 echo "[5/5] Running installer on remote..."

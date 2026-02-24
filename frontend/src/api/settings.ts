@@ -8,8 +8,10 @@ export async function getSettings(): Promise<Settings> {
 
 export async function updateProxmoxSettings(settings: {
   host: string
-  token_id: string
-  token_secret: string
+  username?: string
+  password?: string
+  token_id?: string
+  token_secret?: string
   verify_ssl: boolean
 }): Promise<void> {
   await api.put('/settings/proxmox', settings)

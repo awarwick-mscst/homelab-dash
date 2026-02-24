@@ -30,6 +30,8 @@ async def update_proxmox_settings(
         host=data.host,
         token_id=data.token_id,
         token_secret=data.token_secret,
+        username=data.username,
+        password=data.password,
         verify_ssl=data.verify_ssl,
     )
     return {"status": "updated"}

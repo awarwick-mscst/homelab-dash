@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SERVICE_USER="homelab"
 
 echo "=== Homelab Dashboard Installer ==="
-echo "Target: Debian 12 LXC on Proxmox"
+echo "Target: Debian LXC on Proxmox"
 echo ""
 
 # Check root

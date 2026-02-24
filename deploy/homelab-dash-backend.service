@@ -9,6 +9,7 @@ Group=homelab
 WorkingDirectory=/opt/homelab-dash/backend
 Environment="PATH=/opt/homelab-dash/backend/.venv/bin:/usr/bin"
 ExecStart=/opt/homelab-dash/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 Restart=always
 RestartSec=5
 

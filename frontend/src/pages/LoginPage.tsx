@@ -29,6 +29,9 @@ export default function LoginPage() {
         await register(username, password)
       }
       const token = await login(username, password)
+      // Store token first so getMe() has auth header
+      localStorage.setItem('token', token.access_token)
+      useAuthStore.setState({ token: token.access_token })
       const user = await getMe()
       setAuth(token.access_token, user)
       navigate('/', { replace: true })

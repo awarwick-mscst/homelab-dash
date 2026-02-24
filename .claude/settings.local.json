@@ -3,7 +3,10 @@
     "allow": [
       "Bash(ls:*)",
       "WebSearch",
-      "Bash(chmod +x:*)"
+      "Bash(chmod +x:*)",
+      "Bash(ssh:*)",
+      "Bash(scp:*)",
+      "Bash(tail:*)"
     ]
   }
 }

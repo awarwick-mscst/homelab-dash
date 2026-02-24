@@ -19,9 +19,8 @@ if [[ -z "$HOST" ]]; then
     exit 1
 fi
 
-SSH_OPTS="-o StrictHostKeyChecking=accept-new -p $PORT"
-SSH="ssh $SSH_OPTS $USER@$HOST"
-SCP="scp $SSH_OPTS -r"
+SSH="ssh -o StrictHostKeyChecking=accept-new -p $PORT $USER@$HOST"
+SCP="scp -o StrictHostKeyChecking=accept-new -P $PORT -r"
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -53,7 +52,7 @@ rm -rf "$STAGING/homelab-dash/backend/.venv" \
 find "$STAGING/homelab-dash" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
 ARCHIVE="$STAGING/homelab-dash.tar.gz"
-tar -czf "$ARCHIVE" -C "$STAGING" homelab-dash
+tar -czf "$ARCHIVE" --owner=0 --group=0 -C "$STAGING" homelab-dash
 
 # --- 3. Upload ---
 echo "[3/5] Uploading to $HOST..."
@@ -74,7 +73,7 @@ cp "$INSTALL_DIR/backend/.env" /tmp/homelab-dash-env.bak 2>/dev/null || true
 cp "$INSTALL_DIR/backend/homelab.db" /tmp/homelab-dash-db.bak 2>/dev/null || true
 
 # Extract new code
-tar -xzf /tmp/homelab-dash.tar.gz -C /opt/
+tar -xzf /tmp/homelab-dash.tar.gz --no-same-owner -C /opt/
 rm /tmp/homelab-dash.tar.gz
 
 # Restore user data

@@ -13,9 +13,9 @@ from app.services.ws_manager import ws_manager
 
 SCAN_ARGS = {
     ScanProfile.ping_sweep: ["-sn", "-T4"],
-    ScanProfile.port_scan: ["-sS", "-T4", "--top-ports", "1000"],
-    ScanProfile.os_detect: ["-sS", "-O", "-T4", "--top-ports", "1000"],
-    ScanProfile.full: ["-sS", "-sV", "-O", "-T4", "-p-"],
+    ScanProfile.port_scan: ["-sT", "-T4", "--top-ports", "1000"],
+    ScanProfile.os_detect: ["-sT", "-T4", "--top-ports", "1000"],
+    ScanProfile.full: ["-sT", "-sV", "-T4", "-p-"],
 }
 
 

@@ -3,8 +3,10 @@ from pydantic import BaseModel
 
 class ProxmoxSettings(BaseModel):
     host: str
-    token_id: str
-    token_secret: str
+    username: str = ""
+    password: str = ""
+    token_id: str = ""
+    token_secret: str = ""
     verify_ssl: bool = False
 
 

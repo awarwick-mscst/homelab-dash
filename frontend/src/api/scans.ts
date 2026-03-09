@@ -6,8 +6,8 @@ export async function getScans(): Promise<ScanJob[]> {
   return data
 }
 
-export async function createScan(target: string, profile: ScanProfile): Promise<ScanJob> {
-  const { data } = await api.post<ScanJob>('/scans', { target, profile })
+export async function createScan(target: string, profile: ScanProfile, custom_ports?: string): Promise<ScanJob> {
+  const { data } = await api.post<ScanJob>('/scans', { target, profile, custom_ports: custom_ports || null })
   return data
 }
 
@@ -19,6 +19,10 @@ export async function getScan(id: number): Promise<ScanJob> {
 export async function cancelScan(id: number): Promise<ScanJob> {
   const { data } = await api.post<ScanJob>(`/scans/${id}/cancel`)
   return data
+}
+
+export async function deleteScan(id: number): Promise<void> {
+  await api.delete(`/scans/${id}`)
 }
 
 export async function getSchedules(): Promise<ScanSchedule[]> {

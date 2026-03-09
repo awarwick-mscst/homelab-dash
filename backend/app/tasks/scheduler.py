@@ -2,6 +2,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.config import settings
 from app.services.health_checker import check_all_services
+from app.services.device_monitor import check_monitored_devices
 
 scheduler = AsyncIOScheduler()
 
@@ -12,6 +13,13 @@ def start_scheduler():
         "interval",
         seconds=settings.health_check_interval,
         id="health_check",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        check_monitored_devices,
+        "interval",
+        seconds=60,
+        id="device_monitor",
         replace_existing=True,
     )
     scheduler.start()

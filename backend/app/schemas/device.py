@@ -25,6 +25,10 @@ class DeviceCreate(BaseModel):
     subnet_id: int | None = None
     location: str | None = None
     notes: str | None = None
+    proxmox_vmid: int | None = None
+    proxmox_server_id: str | None = None
+    proxmox_node: str | None = None
+    proxmox_type: str | None = None
 
 
 class DeviceUpdate(BaseModel):
@@ -38,6 +42,20 @@ class DeviceUpdate(BaseModel):
     subnet_id: int | None = None
     location: str | None = None
     notes: str | None = None
+    proxmox_vmid: int | None = None
+    proxmox_server_id: str | None = None
+    proxmox_node: str | None = None
+    proxmox_type: str | None = None
+
+
+class DevicePinUpdate(BaseModel):
+    is_pinned: bool
+    pinned_port: int | None = None
+
+
+class DeviceMonitorUpdate(BaseModel):
+    is_monitored: bool
+    monitor_url: str | None = None
 
 
 class DeviceResponse(BaseModel):
@@ -52,7 +70,17 @@ class DeviceResponse(BaseModel):
     subnet_id: int | None
     location: str | None
     notes: str | None
+    proxmox_vmid: int | None
+    proxmox_server_id: str | None
+    proxmox_node: str | None
+    proxmox_type: str | None
     is_online: bool
+    is_pinned: bool
+    pinned_port: int | None
+    is_monitored: bool
+    monitor_url: str | None
+    monitor_status: str | None
+    response_time_ms: int | None
     last_seen: datetime | None
     first_seen: datetime
     ports: list[DevicePortResponse] = []

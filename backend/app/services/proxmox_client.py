@@ -11,10 +11,11 @@ class ProxmoxClient:
         self._auth_mode = ""  # "token" or "password"
         self._username = ""
         self._password = ""
-        self._configure()
+        self._host = ""
 
     def _configure(self):
         if settings.proxmox_host:
+            self._host = settings.proxmox_host
             self._base_url = f"https://{settings.proxmox_host}:8006/api2/json"
             self._verify_ssl = settings.proxmox_verify_ssl
             if settings.proxmox_token_id and settings.proxmox_token_secret:
@@ -25,6 +26,7 @@ class ProxmoxClient:
 
     def update_config(self, host: str, token_id: str = "", token_secret: str = "",
                       username: str = "", password: str = "", verify_ssl: bool = False):
+        self._host = host
         self._base_url = f"https://{host}:8006/api2/json"
         self._verify_ssl = verify_ssl
         self._cookies = {}
@@ -43,6 +45,10 @@ class ProxmoxClient:
         else:
             self._auth_mode = ""
             self._headers = {}
+
+    @property
+    def host(self) -> str:
+        return self._host
 
     @property
     def is_configured(self) -> bool:
@@ -128,5 +134,97 @@ class ProxmoxClient:
     async def get_cluster_resources(self) -> list[dict]:
         return await self._get("/cluster/resources")
 
+    async def get_vm_interfaces(self, node: str, vmid: int) -> list[dict]:
+        """Fetch network interfaces via qemu-guest-agent."""
+        try:
+            result = await self._get(f"/nodes/{node}/qemu/{vmid}/agent/network-get-interfaces")
+            return result.get("result", []) if isinstance(result, dict) else result
+        except Exception:
+            return []
 
-proxmox_client = ProxmoxClient()
+    async def get_container_interfaces(self, node: str, vmid: int) -> list[dict]:
+        """Fetch LXC container interfaces."""
+        try:
+            result = await self._get(f"/nodes/{node}/lxc/{vmid}/interfaces")
+            return result if isinstance(result, list) else []
+        except Exception:
+            return []
+
+    async def get_container_config(self, node: str, vmid: int) -> dict:
+        """Fetch LXC container config (contains net0, net1, etc.)."""
+        return await self._get(f"/nodes/{node}/lxc/{vmid}/config")
+
+    async def get_guest_ips(self, node: str, vmid: int, guest_type: str) -> list[str]:
+        """Extract IP addresses for a VM or CT."""
+        ips = []
+        if guest_type == "qemu":
+            interfaces = await self.get_vm_interfaces(node, vmid)
+            for iface in interfaces:
+                if iface.get("name") == "lo":
+                    continue
+                for addr in iface.get("ip-addresses", []):
+                    if addr.get("ip-address-type") == "ipv4":
+                        ips.append(addr["ip-address"])
+        else:  # lxc
+            # Try /interfaces endpoint first (works for running containers)
+            interfaces = await self.get_container_interfaces(node, vmid)
+            if interfaces:
+                for iface in interfaces:
+                    if iface.get("name") == "lo":
+                        continue
+                    inet = iface.get("inet")
+                    if inet:
+                        ip = inet.split("/")[0]
+                        if ip:
+                            ips.append(ip)
+            if not ips:
+                # Fallback: parse static IPs from container config
+                try:
+                    config = await self.get_container_config(node, vmid)
+                    for key, val in config.items():
+                        if key.startswith("net") and isinstance(val, str):
+                            for part in val.split(","):
+                                if part.startswith("ip="):
+                                    ip = part.split("=", 1)[1].split("/")[0]
+                                    if ip and ip != "dhcp":
+                                        ips.append(ip)
+                except Exception:
+                    pass
+        return ips
+
+
+class ProxmoxManager:
+    def __init__(self):
+        self._clients: dict[str, ProxmoxClient] = {}
+
+    def add_server(self, server_id: str, host: str, token_id: str = "",
+                   token_secret: str = "", username: str = "", password: str = "",
+                   verify_ssl: bool = False):
+        client = ProxmoxClient()
+        client.update_config(
+            host=host, token_id=token_id, token_secret=token_secret,
+            username=username, password=password, verify_ssl=verify_ssl,
+        )
+        self._clients[server_id] = client
+
+    def remove_server(self, server_id: str):
+        self._clients.pop(server_id, None)
+
+    def get_client(self, server_id: str) -> ProxmoxClient:
+        client = self._clients.get(server_id)
+        if client is None:
+            raise KeyError(f"Proxmox server '{server_id}' not found")
+        return client
+
+    def list_servers(self) -> list[dict]:
+        return [
+            {"id": sid, "host": c.host, "configured": c.is_configured}
+            for sid, c in self._clients.items()
+        ]
+
+    @property
+    def is_configured(self) -> bool:
+        return any(c.is_configured for c in self._clients.values())
+
+
+proxmox_manager = ProxmoxManager()

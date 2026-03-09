@@ -26,6 +26,8 @@ class NetworkLink(Base):
     source_device_id: Mapped[int] = mapped_column(Integer)
     target_device_id: Mapped[int] = mapped_column(Integer)
     link_type: Mapped[str] = mapped_column(String(50), default="ethernet")
+    source_port_label: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    target_port_label: Mapped[str | None] = mapped_column(String(50), nullable=True)
     bandwidth: Mapped[str | None] = mapped_column(String(20), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 

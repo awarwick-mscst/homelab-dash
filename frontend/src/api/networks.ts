@@ -43,3 +43,18 @@ export async function saveTopology(layout: { name: string; layout_data: Record<s
   const { data } = await api.put<TopologyLayout>('/networks/topology', layout)
   return data
 }
+
+export async function autoLinkUnifi(): Promise<{ created: number; skipped: number; total_wireless_clients: number; total_aps: number }> {
+  const { data } = await api.post('/networks/links/auto-unifi')
+  return data
+}
+
+export async function autoLinkSwitch(): Promise<{ created: number; switch: string }> {
+  const { data } = await api.post('/networks/links/auto-switch')
+  return data
+}
+
+export async function autoLinkProxmox(): Promise<{ created: number }> {
+  const { data } = await api.post('/networks/links/auto-proxmox')
+  return data
+}

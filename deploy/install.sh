@@ -18,7 +18,7 @@ fi
 # Install system dependencies
 echo "[1/7] Installing system dependencies..."
 apt-get update -qq
-apt-get install -y -qq python3 python3-venv python3-pip nginx nmap curl >/dev/null
+apt-get install -y -qq python3 python3-venv python3-pip nginx nmap curl sudo >/dev/null
 
 # Create service user
 echo "[2/7] Creating service user..."
@@ -44,9 +44,11 @@ EOF
     echo "  Generated .env with random secret key"
 fi
 
-# Set nmap capabilities (allows scanning without root)
-echo "[4/7] Setting nmap capabilities..."
+# Allow nmap to run with elevated privileges (OS detection needs raw sockets)
+echo "[4/7] Setting nmap permissions..."
 setcap cap_net_raw,cap_net_admin+eip /usr/bin/nmap 2>/dev/null || true
+echo "$SERVICE_USER ALL=(root) NOPASSWD: /usr/bin/nmap" > /etc/sudoers.d/homelab-nmap
+chmod 0440 /etc/sudoers.d/homelab-nmap
 
 # Install systemd service
 echo "[5/7] Installing systemd service..."

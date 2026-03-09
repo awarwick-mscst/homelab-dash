@@ -27,6 +27,7 @@ class ScanJob(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     target: Mapped[str] = mapped_column(String(200))
     profile: Mapped[ScanProfile] = mapped_column(SAEnum(ScanProfile))
+    custom_ports: Mapped[str | None] = mapped_column(String(500), nullable=True)
     status: Mapped[ScanStatus] = mapped_column(
         SAEnum(ScanStatus), default=ScanStatus.pending
     )

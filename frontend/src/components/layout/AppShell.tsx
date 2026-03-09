@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
   LayoutDashboard, Server, Network, Scan, Shield, Settings,
-  Monitor, Flame, Menu, X, LogOut, Moon, Sun,
+  Monitor, Flame, Wifi, Menu, X, LogOut, Moon, Sun, HelpCircle,
 } from 'lucide-react'
 
 const navItems = [
@@ -15,8 +15,11 @@ const navItems = [
   { path: '/scanner', label: 'Scanner', icon: Scan },
   { path: '/proxmox', label: 'Proxmox', icon: Monitor },
   { path: '/pfsense', label: 'pfSense', icon: Flame },
+  { path: '/unifi', label: 'UniFi', icon: Wifi },
+  { path: '/switch', label: 'Switch', icon: Network },
   { path: '/advisor', label: 'Advisor', icon: Shield },
   { path: '/settings', label: 'Settings', icon: Settings },
+  { path: '/help', label: 'Help', icon: HelpCircle },
 ]
 
 export function AppShell({ children }: { children: React.ReactNode }) {

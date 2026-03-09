@@ -25,6 +25,20 @@ class Settings(BaseSettings):
     pfsense_api_key: str = ""
     pfsense_api_secret: str = ""
     pfsense_verify_ssl: bool = False
+    pfsense_mode: str = ""  # "api" or "snmp"
+    pfsense_snmp_community: str = "public"
+    pfsense_snmp_port: int = 161
+
+    # UniFi
+    unifi_host: str = ""
+    unifi_username: str = ""
+    unifi_password: str = ""
+    unifi_site: str = "default"
+    unifi_verify_ssl: bool = False
+
+    # Ollama
+    ollama_host: str = ""
+    ollama_model: str = "llama3"
 
     # Scanning
     nmap_path: str = "/usr/bin/nmap"

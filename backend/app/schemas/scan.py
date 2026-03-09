@@ -6,12 +6,14 @@ from app.models.scan import ScanStatus, ScanProfile
 class ScanCreate(BaseModel):
     target: str
     profile: ScanProfile
+    custom_ports: str | None = None
 
 
 class ScanResponse(BaseModel):
     id: int
     target: str
     profile: ScanProfile
+    custom_ports: str | None
     status: ScanStatus
     progress: int
     hosts_found: int

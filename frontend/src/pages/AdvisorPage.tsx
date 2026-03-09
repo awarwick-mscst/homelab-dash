@@ -3,7 +3,7 @@ import { runAnalysis, getReports, resolveFinding } from '@/api/advisor'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Shield, Play, CheckCircle, AlertTriangle, AlertOctagon, Info } from 'lucide-react'
+import { Shield, Play, CheckCircle, AlertTriangle, AlertOctagon, Info, Sparkles } from 'lucide-react'
 import type { Severity, AdvisoryReport } from '@/types'
 
 const severityConfig: Record<Severity, { variant: 'destructive' | 'warning' | 'default' | 'secondary' | 'outline'; icon: typeof AlertOctagon; label: string }> = {
@@ -90,6 +90,22 @@ export default function AdvisorPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* AI Summary */}
+          {latestReport.ai_summary && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Sparkles className="h-4 w-4" />
+                  AI Analysis
+                  <Badge variant="outline">AI-Enhanced</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm whitespace-pre-wrap">{latestReport.ai_summary}</p>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Findings by category */}
           {categories.map((cat) => (

@@ -25,6 +25,7 @@ class AdvisoryReport(Base):
     medium_count: Mapped[int] = mapped_column(Integer, default=0)
     low_count: Mapped[int] = mapped_column(Integer, default=0)
     info_count: Mapped[int] = mapped_column(Integer, default=0)
+    ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
 
     findings: Mapped[list["AdvisoryFinding"]] = relationship(

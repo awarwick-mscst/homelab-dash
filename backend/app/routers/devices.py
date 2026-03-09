@@ -7,7 +7,7 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
 from app.models.device import Device
-from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceResponse
+from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceResponse, DeviceMonitorUpdate, DevicePinUpdate
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -72,6 +72,62 @@ async def update_device(
         raise HTTPException(status_code=404, detail="Device not found")
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(device, key, value)
+    await db.commit()
+    await db.refresh(device, ["ports"])
+    return device
+
+
+@router.get("/monitored/list", response_model=list[DeviceResponse])
+async def list_monitored_devices(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(Device).options(selectinload(Device.ports))
+        .where(Device.is_monitored == True)
+        .order_by(Device.ip_address)
+    )
+    return result.scalars().all()
+
+
+@router.put("/{device_id}/monitor", response_model=DeviceResponse)
+async def toggle_device_monitor(
+    device_id: int,
+    data: DeviceMonitorUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(Device).options(selectinload(Device.ports)).where(Device.id == device_id)
+    )
+    device = result.scalar_one_or_none()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    device.is_monitored = data.is_monitored
+    device.monitor_url = data.monitor_url
+    if not data.is_monitored:
+        device.monitor_status = None
+        device.response_time_ms = None
+    await db.commit()
+    await db.refresh(device, ["ports"])
+    return device
+
+
+@router.put("/{device_id}/pin", response_model=DeviceResponse)
+async def toggle_device_pin(
+    device_id: int,
+    data: DevicePinUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(Device).options(selectinload(Device.ports)).where(Device.id == device_id)
+    )
+    device = result.scalar_one_or_none()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    device.is_pinned = data.is_pinned
+    device.pinned_port = data.pinned_port if data.is_pinned else None
     await db.commit()
     await db.refresh(device, ["ports"])
     return device

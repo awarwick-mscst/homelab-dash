@@ -3,16 +3,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import engine, Base
+from app.database import async_session, migrate_schema
 from app.tasks.scheduler import start_scheduler, stop_scheduler
-from app.routers import auth, services, devices, networks, scans, proxmox, pfsense, advisor, settings, ws
+from app.routers import auth, services, devices, networks, scans, proxmox, pfsense, unifi, advisor, settings, ws, ollama, switch
+from app.routers.settings import restore_saved_settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create tables and start scheduler
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Startup: create tables + add any missing columns, restore settings, start scheduler
+    await migrate_schema()
+    async with async_session() as db:
+        await restore_saved_settings(db)
     start_scheduler()
     yield
     # Shutdown
@@ -36,7 +38,10 @@ app.include_router(networks.router)
 app.include_router(scans.router)
 app.include_router(proxmox.router)
 app.include_router(pfsense.router)
+app.include_router(unifi.router)
+app.include_router(switch.router)
 app.include_router(advisor.router)
+app.include_router(ollama.router)
 app.include_router(settings.router)
 app.include_router(ws.router)
 

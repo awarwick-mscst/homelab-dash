@@ -29,7 +29,7 @@ async def create_scan(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    scan = ScanJob(target=data.target, profile=data.profile)
+    scan = ScanJob(target=data.target, profile=data.profile, custom_ports=data.custom_ports)
     db.add(scan)
     await db.commit()
     await db.refresh(scan)
@@ -65,6 +65,21 @@ async def cancel_scan(
         await db.commit()
         await db.refresh(scan)
     return scan
+
+
+@router.delete("/{scan_id}", status_code=204)
+async def delete_scan(
+    scan_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    scan = await db.get(ScanJob, scan_id)
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    if scan.status == ScanStatus.running:
+        raise HTTPException(status_code=400, detail="Cannot delete a running scan — cancel it first")
+    await db.delete(scan)
+    await db.commit()
 
 
 # --- Schedules ---

@@ -40,6 +40,8 @@ class NetworkLinkCreate(BaseModel):
     source_device_id: int
     target_device_id: int
     link_type: str = "ethernet"
+    source_port_label: str | None = None
+    target_port_label: str | None = None
     bandwidth: str | None = None
     notes: str | None = None
 
@@ -49,6 +51,8 @@ class NetworkLinkResponse(BaseModel):
     source_device_id: int
     target_device_id: int
     link_type: str
+    source_port_label: str | None
+    target_port_label: str | None
     bandwidth: str | None
     notes: str | None
 

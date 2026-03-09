@@ -6,7 +6,16 @@
       "Bash(chmod +x:*)",
       "Bash(ssh:*)",
       "Bash(scp:*)",
-      "Bash(tail:*)"
+      "Bash(tail:*)",
+      "Bash(cd /c/Users/aaron/source/claude/homelab-dash/frontend && npx tsc --noEmit 2>&1)",
+      "WebFetch(domain:docs.lextudio.com)",
+      "Bash(cd:*)",
+      "Bash(head:*)",
+      "Bash(python:*)",
+      "Bash(where nmap:*)",
+      "Read(//c/Program Files \\(x86\\)/Nmap/**)",
+      "Read(//c/Program Files/Nmap/**)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

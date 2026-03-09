@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.device import Device, DevicePort
 from app.models.network import Subnet
 from app.models.advisory import AdvisoryReport, AdvisoryFinding, Severity
+from app.services.ollama_client import ollama_client
 
 
 class AdvisorEngine:
@@ -37,10 +38,15 @@ class AdvisorEngine:
         score = self._calculate_score()
         counts = self._count_severities()
 
+        ai_summary = None
+        if self.findings and ollama_client.is_configured:
+            ai_summary = await self._generate_ai_summary(subnets, devices)
+
         report = AdvisoryReport(
             overall_score=score,
             total_findings=len(self.findings),
             **counts,
+            ai_summary=ai_summary,
             created_at=datetime.now(timezone.utc),
         )
         self.db.add(report)
@@ -191,6 +197,32 @@ class AdvisorEngine:
                 "recommendation": "Review and classify unknown devices. Unidentified devices could be unauthorized.",
                 "details": {"ips": [d.ip_address for d in unknown]},
             })
+
+    async def _generate_ai_summary(self, subnets: list, devices: list) -> str | None:
+        try:
+            findings_text = "\n".join(
+                f"- [{f['severity'].value.upper()}] {f['title']}: {f['description']}"
+                for f in self.findings
+            )
+            device_summary = f"{len(devices)} devices discovered"
+            subnet_summary = f"{len(subnets)} subnets configured"
+            online_count = sum(1 for d in devices if d.is_online)
+
+            prompt = (
+                f"You are a homelab network security advisor. Analyze these findings and provide "
+                f"a concise security assessment with prioritized recommendations.\n\n"
+                f"Network overview: {device_summary}, {online_count} online, {subnet_summary}.\n\n"
+                f"Findings:\n{findings_text}\n\n"
+                f"Provide a brief overall assessment (2-3 paragraphs) with the most important "
+                f"actions the homelab owner should take first. Be specific and practical."
+            )
+
+            return await ollama_client.generate(
+                prompt=prompt,
+                system="You are a network security expert specializing in homelab environments. Be concise and actionable.",
+            )
+        except Exception:
+            return None
 
     def _calculate_score(self) -> float:
         if not self.findings:

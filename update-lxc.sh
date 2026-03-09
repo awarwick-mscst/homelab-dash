@@ -87,6 +87,11 @@ python3 -m venv .venv
 .venv/bin/pip install --quiet --upgrade pip
 .venv/bin/pip install --quiet .
 
+# Ensure nmap can run OS detection scans without root
+setcap cap_net_raw,cap_net_admin+eip /usr/bin/nmap 2>/dev/null || true
+echo "$SERVICE_USER ALL=(root) NOPASSWD: /usr/bin/nmap" > /etc/sudoers.d/homelab-nmap
+chmod 0440 /etc/sudoers.d/homelab-nmap
+
 # Update systemd/nginx in case they changed
 cp "$INSTALL_DIR/deploy/homelab-dash-backend.service" /etc/systemd/system/
 cp "$INSTALL_DIR/deploy/homelab-dash.nginx.conf" /etc/nginx/sites-available/homelab-dash

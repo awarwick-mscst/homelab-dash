@@ -1,6 +1,16 @@
 from pydantic import BaseModel
 
 
+class ProxmoxServerSettings(BaseModel):
+    id: str
+    host: str
+    username: str = ""
+    password: str = ""
+    token_id: str = ""
+    token_secret: str = ""
+    verify_ssl: bool = False
+
+
 class ProxmoxSettings(BaseModel):
     host: str
     username: str = ""
@@ -12,16 +22,53 @@ class ProxmoxSettings(BaseModel):
 
 class PfSenseSettings(BaseModel):
     host: str
-    api_key: str
-    api_secret: str
+    mode: str = "api"  # "api" or "snmp"
+    api_key: str = ""
+    api_secret: str = ""
     verify_ssl: bool = False
+    community: str = ""
+    snmp_port: int = 161
+
+
+class UniFiSettings(BaseModel):
+    host: str
+    username: str
+    password: str
+    site: str = "default"
+    verify_ssl: bool = False
+
+
+class OllamaSettings(BaseModel):
+    host: str
+    model: str = "llama3"
+
+
+class SwitchSettings(BaseModel):
+    host: str
+    community: str = "public"
+    port: int = 161
+
+
+class ProxmoxServerInfo(BaseModel):
+    id: str
+    host: str
+    configured: bool
 
 
 class SettingsResponse(BaseModel):
     proxmox_host: str
     proxmox_token_id: str
     proxmox_configured: bool
+    proxmox_servers: list[ProxmoxServerInfo] = []
     pfsense_host: str
     pfsense_configured: bool
+    pfsense_mode: str
+    unifi_host: str
+    unifi_configured: bool
+    ollama_host: str
+    ollama_configured: bool
+    ollama_model: str
+    switch_host: str
+    switch_configured: bool
     health_check_interval: int
     proxmox_poll_interval: int

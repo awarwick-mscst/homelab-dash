@@ -23,6 +23,17 @@ function formatBytes(bytes: number): string {
   return `${bytes} B`
 }
 
+function formatUptime(raw: string): string {
+  // SG250 format: "121,12:22:04" (days,hour:min:sec)
+  const m = raw.match(/^(\d+),(\d+):(\d+):(\d+)$/)
+  if (m) {
+    const [, days, hours, mins] = m
+    return `${days}d ${hours}h ${mins}m`
+  }
+  // Already formatted or other format — return as-is
+  return raw
+}
+
 type IfSortKey = 'name' | 'status' | 'speed' | 'in' | 'out' | 'errors'
 type SortDir = 'asc' | 'desc'
 
@@ -182,6 +193,19 @@ export default function SwitchPage() {
     ifNameMap[iface.index] = iface.name
   }
 
+  // Build port name -> MAC addresses lookup for ports table
+  const portMacs: Record<string, string[]> = {}
+  for (const entry of macTable) {
+    // MAC entries have port name in if_index (SSH) or bridge_port
+    const port = entry.if_index || entry.bridge_port || ''
+    // Match by port name directly (SSH mode) or via ifNameMap (SNMP mode)
+    const portName = ifNameMap[port] || port
+    if (portName) {
+      if (!portMacs[portName]) portMacs[portName] = []
+      portMacs[portName].push(entry.mac)
+    }
+  }
+
   const filteredMac = macTable.filter((m: SwitchMacEntry) =>
     macFilter === '' ||
     m.mac.toLowerCase().includes(macFilter.toLowerCase()) ||
@@ -232,13 +256,31 @@ export default function SwitchPage() {
         </Card>
       )}
 
-      {/* Overview-level error */}
+      {/* Overview-level errors */}
       {overview?.error && (
         <Card>
           <CardContent className="p-4 text-sm text-yellow-600">
             Partial data: {overview.error}
           </CardContent>
         </Card>
+      )}
+      {overview?._errors && overview._errors.length > 0 && (
+        <Card>
+          <CardContent className="p-4 space-y-1">
+            <p className="text-sm font-medium text-yellow-600">Switch communication issues:</p>
+            {overview._errors.map((err: string, i: number) => (
+              <p key={i} className="text-xs text-muted-foreground font-mono">{err}</p>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+      {overview?._debug && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Debug: raw command output</summary>
+          <pre className="mt-2 p-3 bg-muted rounded overflow-auto max-h-60 text-xs whitespace-pre-wrap">
+            {JSON.stringify(overview._debug, null, 2)}
+          </pre>
+        </details>
       )}
 
       {/* System Info */}
@@ -253,7 +295,7 @@ export default function SwitchPage() {
           <Card>
             <CardContent className="p-4">
               <p className="text-xs text-muted-foreground">Uptime</p>
-              <p className="font-semibold">{system.uptime}</p>
+              <p className="font-semibold">{formatUptime(system.uptime)}</p>
             </CardContent>
           </Card>
           <Card>
@@ -329,6 +371,7 @@ export default function SwitchPage() {
                         <span className="inline-flex items-center">{label}<SortIcon col={key} /></span>
                       </th>
                     ))}
+                    <th className="p-3 text-left font-medium">MAC Address</th>
                     <th className="p-3 text-left font-medium">Description</th>
                   </tr>
                 </thead>
@@ -356,13 +399,23 @@ export default function SwitchPage() {
                           <span className="text-muted-foreground">0</span>
                         )}
                       </td>
+                      <td className="p-3 text-xs font-mono max-w-[200px]">
+                        {portMacs[iface.name]?.length ? (
+                          <span title={portMacs[iface.name].join('\n')}>
+                            {portMacs[iface.name][0]}
+                            {portMacs[iface.name].length > 1 && (
+                              <span className="text-muted-foreground ml-1">+{portMacs[iface.name].length - 1}</span>
+                            )}
+                          </span>
+                        ) : '-'}
+                      </td>
                       <td className="p-3 text-xs text-muted-foreground truncate max-w-[200px]" title={iface.alias}>
                         {iface.alias || '-'}
                       </td>
                     </tr>
                   ))}
                   {sortedPorts.length === 0 && interfaces.length > 0 && (
-                    <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">No ports match current filters.</td></tr>
+                    <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">No ports match current filters.</td></tr>
                   )}
                 </tbody>
               </table>

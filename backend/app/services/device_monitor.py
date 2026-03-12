@@ -30,18 +30,32 @@ async def _ping(ip: str) -> tuple[bool, int | None]:
         return False, None
 
 
+async def _check_internet() -> tuple[bool, int | None]:
+    """Check internet connectivity by pinging well-known external DNS servers."""
+    for target in ("8.8.8.8", "1.1.1.1", "208.67.222.222"):
+        alive, ms = await _ping(target)
+        if alive:
+            return True, ms
+    return False, None
+
+
 async def check_monitored_devices():
     async with async_session() as db:
         result = await db.execute(
-            select(Device).where(Device.is_monitored == True)
+            select(Device).where(
+                (Device.is_monitored == True) | (Device.device_type == "internet")
+            )
         )
         devices = result.scalars().all()
 
         for device in devices:
             old_status = device.monitor_status
 
-            # Ping check
-            alive, ping_ms = await _ping(device.ip_address)
+            # Internet-type devices: check external connectivity instead of pinging the device IP
+            if device.device_type == "internet":
+                alive, ping_ms = await _check_internet()
+            else:
+                alive, ping_ms = await _ping(device.ip_address)
 
             if not alive:
                 device.monitor_status = "offline"

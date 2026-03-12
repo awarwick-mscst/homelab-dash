@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
   LayoutDashboard, Server, Network, Scan, Shield, Settings,
-  Monitor, Flame, Wifi, Menu, X, LogOut, Moon, Sun, HelpCircle,
+  Monitor, Flame, Wifi, Menu, X, LogOut, Moon, Sun, HelpCircle, Globe,
 } from 'lucide-react'
 
 const navItems = [
@@ -18,6 +18,7 @@ const navItems = [
   { path: '/unifi', label: 'UniFi', icon: Wifi },
   { path: '/switch', label: 'Switch', icon: Network },
   { path: '/advisor', label: 'Advisor', icon: Shield },
+  { path: '/dns', label: 'DNS', icon: Globe },
   { path: '/settings', label: 'Settings', icon: Settings },
   { path: '/help', label: 'Help', icon: HelpCircle },
 ]
@@ -78,7 +79,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
         <div className="absolute bottom-0 w-full p-3 border-t">
-          <p className="text-[10px] text-muted-foreground/50 mb-2">v0.1.0</p>
+          <p className="text-[10px] text-muted-foreground/50 mb-2">v{__APP_VERSION__}</p>
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground">{user?.username}</span>
             <div className="flex gap-1">

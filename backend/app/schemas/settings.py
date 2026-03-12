@@ -45,8 +45,15 @@ class OllamaSettings(BaseModel):
 
 class SwitchSettings(BaseModel):
     host: str
+    mode: str = "ssh"  # "ssh" or "snmp"
+    # SSH
+    username: str = ""
+    password: str = ""
+    ssh_port: int = 22
+    enable_password: str = ""
+    # SNMP
     community: str = "public"
-    port: int = 161
+    snmp_port: int = 161
 
 
 class ProxmoxServerInfo(BaseModel):
@@ -70,5 +77,6 @@ class SettingsResponse(BaseModel):
     ollama_model: str
     switch_host: str
     switch_configured: bool
+    switch_mode: str = ""
     health_check_interval: int
     proxmox_poll_interval: int

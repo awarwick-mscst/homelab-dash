@@ -26,7 +26,7 @@ export async function getSwitchPoe(): Promise<Record<string, unknown>[]> {
   return data
 }
 
-export async function testSwitchConnection(): Promise<{ ok: boolean; host: string; error?: string; system?: SwitchSystemInfo }> {
+export async function testSwitchConnection(): Promise<{ ok: boolean; host: string; error?: string; mode?: string; output?: string; system?: SwitchSystemInfo }> {
   const { data } = await api.get('/switch/test')
   return data
 }
@@ -37,6 +37,8 @@ export async function getSwitchOverview(): Promise<{
   mac_table: SwitchMacEntry[]
   vlans: SwitchVlan[]
   error?: string
+  _errors?: string[]
+  _debug?: Record<string, string>
 }> {
   const { data } = await api.get('/switch/overview')
   return data

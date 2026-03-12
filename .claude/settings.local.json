@@ -15,7 +15,14 @@
       "Bash(where nmap:*)",
       "Read(//c/Program Files \\(x86\\)/Nmap/**)",
       "Read(//c/Program Files/Nmap/**)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(where gh:*)",
+      "Bash(gh api:*)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:pfrest.org)",
+      "Bash(npm run:*)",
+      "WebFetch(domain:www.cisco.com)",
+      "Bash(find /c/Users/aaron/source/claude/homelab-dash/backend -name \"*network*\" -o -name \"*link*\" -type f | grep -E \"\\\\.\\(py\\)$\")"
     ]
   }
 }

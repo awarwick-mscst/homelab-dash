@@ -40,3 +40,8 @@ export async function getMonitoredDevices(): Promise<Device[]> {
   const { data } = await api.get<Device[]>('/devices/monitored/list')
   return data
 }
+
+export async function getSwitchPorts(): Promise<Record<string, string>> {
+  const { data } = await api.get<Record<string, string>>('/devices/switch-ports')
+  return data
+}

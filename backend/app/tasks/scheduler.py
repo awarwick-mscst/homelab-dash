@@ -3,6 +3,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.config import settings
 from app.services.health_checker import check_all_services
 from app.services.device_monitor import check_monitored_devices
+from app.services.dns_monitor import check_all_domains
 
 scheduler = AsyncIOScheduler()
 
@@ -20,6 +21,13 @@ def start_scheduler():
         "interval",
         seconds=60,
         id="device_monitor",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        check_all_domains,
+        "interval",
+        seconds=300,
+        id="dns_monitor",
         replace_existing=True,
     )
     scheduler.start()

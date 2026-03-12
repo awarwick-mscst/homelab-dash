@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { getOverview, getGateways, getMode } from '@/api/pfsense'
+import { useState, useMemo, Component, type ReactNode, type ErrorInfo } from 'react'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { getOverview, getGateways, getMode, testConnection } from '@/api/pfsense'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
@@ -10,9 +10,43 @@ import {
   Flame, Network, Shield, Server, Route, ArrowRightLeft,
   ArrowUp, ArrowDown, ArrowUpDown, Cpu, MemoryStick, Activity,
 } from 'lucide-react'
-import type { PfSenseInterface, PfSenseArpEntry } from '@/types'
 
+// ---------- Error Boundary ----------
+interface EBProps { children: ReactNode; overview?: unknown }
+interface EBState { error: Error | null }
+
+class PfSenseErrorBoundary extends Component<EBProps, EBState> {
+  state: EBState = { error: null }
+  static getDerivedStateFromError(error: Error) { return { error } }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('PfSensePage render error:', error, info)
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="space-y-6">
+          <h1 className="text-3xl font-bold">pfSense Firewall</h1>
+          <Card>
+            <CardContent className="p-8">
+              <p className="text-destructive font-medium mb-2">Render error: {this.state.error.message}</p>
+              <p className="text-sm text-muted-foreground mb-4">
+                The data from pfSense couldn't be displayed. Raw data is shown below for debugging.
+              </p>
+              <pre className="p-3 bg-muted rounded text-xs overflow-auto max-h-96 whitespace-pre-wrap">
+                {JSON.stringify(this.props.overview, null, 2)}
+              </pre>
+            </CardContent>
+          </Card>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+// ---------- Helpers ----------
 function formatBytes(bytes: number): string {
+  if (!bytes || isNaN(bytes)) return '0 B'
   if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(1)} GB`
   if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1)} MB`
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -20,6 +54,7 @@ function formatBytes(bytes: number): string {
 }
 
 function formatSpeed(bps: number): string {
+  if (!bps || isNaN(bps)) return '0 bps'
   if (bps >= 1_000_000_000) return `${(bps / 1_000_000_000).toFixed(0)} Gbps`
   if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(0)} Mbps`
   if (bps >= 1_000) return `${(bps / 1_000).toFixed(0)} Kbps`
@@ -27,6 +62,7 @@ function formatSpeed(bps: number): string {
 }
 
 function formatKB(kb: number): string {
+  if (!kb || isNaN(kb)) return '0 KB'
   if (kb >= 1_048_576) return `${(kb / 1_048_576).toFixed(1)} GB`
   if (kb >= 1024) return `${(kb / 1024).toFixed(0)} MB`
   return `${kb} KB`
@@ -44,20 +80,33 @@ function MiniBar({ value, max, color = 'bg-blue-500' }: { value: number; max: nu
   )
 }
 
-type IfSortKey = 'name' | 'status' | 'speed' | 'in' | 'out' | 'ip'
-type ArpSortKey = 'ip' | 'mac' | 'type'
-type SortDir = 'asc' | 'desc'
+function s(val: unknown): string { return String(val ?? '') }
+function n(val: unknown): number { const v = Number(val); return isNaN(v) ? 0 : v }
 
 function compareIPs(a: string, b: string): number {
-  const pa = a.split('/')[0].split('.').map(Number)
-  const pb = b.split('/')[0].split('.').map(Number)
+  const pa = (a || '').split('/')[0].split('.').map(Number)
+  const pb = (b || '').split('/')[0].split('.').map(Number)
   for (let i = 0; i < 4; i++) {
     if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0)
   }
   return 0
 }
 
+// ---------- Main Page ----------
 export default function PfSensePage() {
+  return <PfSensePageInner />
+}
+
+type IfSortKey = 'name' | 'status' | 'speed' | 'in' | 'out' | 'ip'
+type ArpSortKey = 'ip' | 'mac' | 'type'
+type SortDir = 'asc' | 'desc'
+
+// Use Record<string, unknown> so we never crash on missing fields
+type Iface = Record<string, unknown>
+type ArpEntry = Record<string, unknown>
+type GwEntry = Record<string, unknown>
+
+function PfSensePageInner() {
   const [ifFilter, setIfFilter] = useState('')
   const [ifStatusFilter, setIfStatusFilter] = useState('all')
   const [ifSortKey, setIfSortKey] = useState<IfSortKey>('name')
@@ -65,6 +114,7 @@ export default function PfSensePage() {
   const [arpFilter, setArpFilter] = useState('')
   const [arpSortKey, setArpSortKey] = useState<ArpSortKey>('ip')
   const [arpSortDir, setArpSortDir] = useState<SortDir>('asc')
+  const [showRaw, setShowRaw] = useState(false)
 
   const { data: modeData, isLoading: modeLoading, isError: modeError } = useQuery({
     queryKey: ['pfsense', 'mode'],
@@ -82,13 +132,17 @@ export default function PfSensePage() {
     refetchInterval: 30000,
   })
 
-  const { data: gateways = [] } = useQuery({
+  const { data: gatewaysRaw } = useQuery({
     queryKey: ['pfsense', 'gateways'],
     queryFn: getGateways,
     retry: false,
     enabled: !!mode,
   })
+  const gateways: GwEntry[] = Array.isArray(gatewaysRaw) ? gatewaysRaw : []
 
+  const testMutation = useMutation({ mutationFn: testConnection })
+
+  // --- Loading ---
   if (modeLoading || (!!mode && overviewLoading)) {
     return (
       <div className="space-y-6">
@@ -103,6 +157,7 @@ export default function PfSensePage() {
     )
   }
 
+  // --- Not configured ---
   if (modeError || !mode) {
     return (
       <div className="space-y-6">
@@ -110,15 +165,23 @@ export default function PfSensePage() {
         <Card>
           <CardContent className="p-12 text-center text-muted-foreground">
             <Flame className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>pfSense not configured. Go to Settings to set up SNMP or API access.</p>
+            <p>pfSense not configured. Go to Settings to set up API access.</p>
           </CardContent>
         </Card>
       </div>
     )
   }
 
+  // --- Error state ---
   if (overviewError) {
-    const errMsg = (overviewErrorObj as Error)?.message || 'Unknown error'
+    const axiosErr = overviewErrorObj as { response?: { data?: { detail?: string }; status?: number } }
+    const detail = axiosErr?.response?.data?.detail
+    const status = axiosErr?.response?.status
+    const errMsg = detail
+      || (status === 502 ? 'Cannot reach pfSense — check host and API key in Settings'
+        : status === 400 ? 'pfSense not configured — go to Settings to set up API access'
+        : (overviewErrorObj as Error)?.message || 'Unknown error')
+    const testResult = testMutation.data as Record<string, string | number | boolean> | undefined
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-3">
@@ -130,75 +193,89 @@ export default function PfSensePage() {
             <Flame className="h-12 w-12 mx-auto mb-4 opacity-50 text-destructive" />
             <p className="text-destructive font-medium mb-2">Failed to connect to pfSense</p>
             <p className="text-sm text-muted-foreground mb-4">{errMsg}</p>
-            <p className="text-sm text-muted-foreground">
-              Check your pfSense host, API key, and that the REST API plugin is installed and running.
-            </p>
+            <Button onClick={() => testMutation.mutate()} disabled={testMutation.isPending} variant="outline">
+              {testMutation.isPending ? 'Testing...' : 'Test Connection'}
+            </Button>
           </CardContent>
         </Card>
+        {testResult && (
+          <Card>
+            <CardHeader><CardTitle className="text-base">Connection Test Result</CardTitle></CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                <Badge variant={testResult.ok ? 'success' : 'destructive'}>
+                  {testResult.ok ? 'Connected' : 'Failed'}
+                </Badge>
+                {testResult.url && <p className="text-xs font-mono">{String(testResult.url)}</p>}
+                {testResult.status_code && <p className="text-xs">HTTP {String(testResult.status_code)}</p>}
+                {testResult.error && <p className="text-sm text-destructive">{String(testResult.error)}</p>}
+                {testResult.response_body && (
+                  <pre className="p-3 bg-muted rounded text-xs overflow-auto max-h-60 whitespace-pre-wrap">{String(testResult.response_body)}</pre>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     )
   }
 
-  const system = overview?.system
-  const interfaces = overview?.interfaces || []
-  const arpTable = overview?.arp_table || []
-  const ifCounts = overview?.interface_counts
+  // --- Data loaded, safe access everything ---
+  const system: Record<string, unknown> = (overview?.system as unknown as Record<string, unknown>) || {}
+  const interfaces: Iface[] = Array.isArray(overview?.interfaces) ? (overview.interfaces as unknown as Iface[]) : []
+  const arpTable: ArpEntry[] = Array.isArray(overview?.arp_table) ? (overview.arp_table as unknown as ArpEntry[]) : []
+  const ifCounts = (overview?.interface_counts || {}) as Record<string, number>
 
-  // Filter interfaces - skip loopback/null
-  const physicalIfs = interfaces.filter((i: PfSenseInterface) =>
-    i.name && !i.name.startsWith('lo') && !i.name.startsWith('Null') &&
-    (ifFilter === '' ||
-      i.name.toLowerCase().includes(ifFilter.toLowerCase()) ||
-      (i.alias || '').toLowerCase().includes(ifFilter.toLowerCase()) ||
-      i.ip_addresses?.some(ip => ip.includes(ifFilter)))
+  const physicalIfs = interfaces.filter((i) => {
+    const name = s(i.name)
+    if (!name || name.startsWith('lo') || name.startsWith('Null')) return false
+    if (ifFilter === '') return true
+    const f = ifFilter.toLowerCase()
+    return name.toLowerCase().includes(f) ||
+      s(i.alias).toLowerCase().includes(f) ||
+      (Array.isArray(i.ip_addresses) ? i.ip_addresses : []).some((ip: unknown) => s(ip).includes(ifFilter))
+  })
+
+  const filteredIfs = physicalIfs.filter((i) =>
+    ifStatusFilter === 'all' || s(i.oper_status) === ifStatusFilter
   )
 
-  const filteredIfs = physicalIfs.filter((i: PfSenseInterface) =>
-    ifStatusFilter === 'all' || i.oper_status === ifStatusFilter
-  )
-
-  const sortedIfs = useMemo(() => {
-    return [...filteredIfs].sort((a: PfSenseInterface, b: PfSenseInterface) => {
-      let cmp = 0
-      switch (ifSortKey) {
-        case 'name': cmp = a.name.localeCompare(b.name, undefined, { numeric: true }); break
-        case 'status': cmp = a.oper_status.localeCompare(b.oper_status); break
-        case 'speed': cmp = a.speed - b.speed; break
-        case 'in': cmp = a.in_octets - b.in_octets; break
-        case 'out': cmp = a.out_octets - b.out_octets; break
-        case 'ip': {
-          const aIp = a.ip_addresses?.[0] || 'zzz'
-          const bIp = b.ip_addresses?.[0] || 'zzz'
-          cmp = compareIPs(aIp, bIp)
-          break
-        }
+  const sortedIfs = [...filteredIfs].sort((a, b) => {
+    let cmp = 0
+    switch (ifSortKey) {
+      case 'name': cmp = s(a.name).localeCompare(s(b.name), undefined, { numeric: true }); break
+      case 'status': cmp = s(a.oper_status).localeCompare(s(b.oper_status)); break
+      case 'speed': cmp = n(a.speed) - n(b.speed); break
+      case 'in': cmp = n(a.in_octets) - n(b.in_octets); break
+      case 'out': cmp = n(a.out_octets) - n(b.out_octets); break
+      case 'ip': {
+        const aIps = Array.isArray(a.ip_addresses) ? a.ip_addresses : []
+        const bIps = Array.isArray(b.ip_addresses) ? b.ip_addresses : []
+        cmp = compareIPs(s(aIps[0]), s(bIps[0]))
+        break
       }
-      return ifSortDir === 'asc' ? cmp : -cmp
-    })
-  }, [filteredIfs, ifSortKey, ifSortDir])
+    }
+    return ifSortDir === 'asc' ? cmp : -cmp
+  })
 
-  const upCount = physicalIfs.filter((i: PfSenseInterface) => i.oper_status === 'up').length
-  const downCount = physicalIfs.filter((i: PfSenseInterface) => i.oper_status === 'down').length
+  const upCount = physicalIfs.filter((i) => s(i.oper_status) === 'up').length
+  const downCount = physicalIfs.filter((i) => s(i.oper_status) === 'down').length
 
-  // ARP filtering & sorting
-  const filteredArp = useMemo(() => {
+  const filteredArp = arpTable.filter((e) => {
+    if (arpFilter === '') return true
     const f = arpFilter.toLowerCase()
-    return arpTable.filter((e: PfSenseArpEntry) =>
-      f === '' || e.ip.toLowerCase().includes(f) || e.mac.toLowerCase().includes(f)
-    )
-  }, [arpTable, arpFilter])
+    return s(e.ip).toLowerCase().includes(f) || s(e.mac).toLowerCase().includes(f)
+  })
 
-  const sortedArp = useMemo(() => {
-    return [...filteredArp].sort((a: PfSenseArpEntry, b: PfSenseArpEntry) => {
-      let cmp = 0
-      switch (arpSortKey) {
-        case 'ip': cmp = compareIPs(a.ip, b.ip); break
-        case 'mac': cmp = a.mac.localeCompare(b.mac); break
-        case 'type': cmp = a.type.localeCompare(b.type); break
-      }
-      return arpSortDir === 'asc' ? cmp : -cmp
-    })
-  }, [filteredArp, arpSortKey, arpSortDir])
+  const sortedArp = [...filteredArp].sort((a, b) => {
+    let cmp = 0
+    switch (arpSortKey) {
+      case 'ip': cmp = compareIPs(s(a.ip), s(b.ip)); break
+      case 'mac': cmp = s(a.mac).localeCompare(s(b.mac)); break
+      case 'type': cmp = s(a.type).localeCompare(s(b.type)); break
+    }
+    return arpSortDir === 'asc' ? cmp : -cmp
+  })
 
   function handleIfSort(key: IfSortKey) {
     if (ifSortKey === key) setIfSortDir(ifSortDir === 'asc' ? 'desc' : 'asc')
@@ -215,324 +292,283 @@ export default function PfSensePage() {
     return dir === 'asc' ? <ArrowUp className="h-3 w-3 ml-1" /> : <ArrowDown className="h-3 w-3 ml-1" />
   }
 
-  const memTotal = Number(system?.mem_total_kb || 0)
-  const memUsed = Number(system?.mem_used_kb || 0)
-  const memPercent = system?.mem_percent
-  const cpuLoad = system?.cpu_load_1
-  const pfStates = system?.pf_states
-  const tcpEstab = system?.tcp_established
+  const memTotal = n(system.mem_total_kb)
+  const memUsed = n(system.mem_used_kb)
+  const memPercent = system.mem_percent != null ? n(system.mem_percent) : null
+  const cpuLoad = system.cpu_load_1 ? s(system.cpu_load_1) : ''
+  const pfStates = system.pf_states
+  const tcpEstab = system.tcp_established
 
   const ifHeaders: [IfSortKey, string][] = [
-    ['name', 'Interface'],
-    ['ip', 'IP Address'],
-    ['status', 'Status'],
-    ['speed', 'Speed'],
-    ['in', 'Traffic In'],
-    ['out', 'Traffic Out'],
+    ['name', 'Interface'], ['ip', 'IP Address'], ['status', 'Status'],
+    ['speed', 'Speed'], ['in', 'Traffic In'], ['out', 'Traffic Out'],
   ]
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <h1 className="text-3xl font-bold">pfSense Firewall</h1>
-        <Badge variant="outline">{mode.toUpperCase()}</Badge>
-      </div>
+    <PfSenseErrorBoundary overview={overview}>
+      <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-bold">pfSense Firewall</h1>
+          <Badge variant="outline">{mode.toUpperCase()}</Badge>
+          <Button variant="ghost" size="sm" className="ml-auto text-xs" onClick={() => setShowRaw(!showRaw)}>
+            {showRaw ? 'Hide' : 'Show'} Raw Data
+          </Button>
+        </div>
 
-      {/* System Overview Cards */}
-      {system && (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        {/* Raw data debug panel */}
+        {showRaw && (
           <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <Server className="h-4 w-4 text-muted-foreground" />
-                <p className="text-xs text-muted-foreground">Hostname</p>
-              </div>
-              <p className="font-semibold truncate" title={system.hostname}>{system.hostname || '-'}</p>
+            <CardHeader><CardTitle className="text-base">Raw API Response</CardTitle></CardHeader>
+            <CardContent>
+              <pre className="p-3 bg-muted rounded text-xs overflow-auto max-h-96 whitespace-pre-wrap">
+                {JSON.stringify(overview, null, 2)}
+              </pre>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <Activity className="h-4 w-4 text-muted-foreground" />
-                <p className="text-xs text-muted-foreground">Uptime</p>
-              </div>
-              <p className="font-semibold">{system.uptime || '-'}</p>
-            </CardContent>
-          </Card>
-          {cpuLoad && (
+        )}
+
+        {/* System Overview Cards */}
+        {system && Object.keys(system).length > 0 && (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <Card>
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-1">
-                  <Cpu className="h-4 w-4 text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground">CPU Load</p>
+                  <Server className="h-4 w-4 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">Hostname</p>
                 </div>
-                <p className="font-semibold">{cpuLoad}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {system.cpu_load_5} / {system.cpu_load_15}
-                </p>
+                <p className="font-semibold truncate">{s(system.hostname) || '-'}</p>
               </CardContent>
             </Card>
-          )}
-          {memTotal > 0 && (
             <Card>
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-1">
-                  <MemoryStick className="h-4 w-4 text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground">Memory</p>
+                  <Activity className="h-4 w-4 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">Uptime</p>
                 </div>
-                <p className="font-semibold">{formatKB(memUsed)} / {formatKB(memTotal)}</p>
-                <MiniBar
-                  value={memUsed}
-                  max={memTotal}
-                  color={memPercent && memPercent > 90 ? 'bg-red-500' : memPercent && memPercent > 70 ? 'bg-yellow-500' : 'bg-blue-500'}
-                />
+                <p className="font-semibold">{s(system.uptime) || '-'}</p>
               </CardContent>
             </Card>
-          )}
-          {pfStates && (
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 mb-1">
-                  <Shield className="h-4 w-4 text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground">Firewall States</p>
-                </div>
-                <p className="font-semibold text-lg">{Number(pfStates).toLocaleString()}</p>
-              </CardContent>
-            </Card>
-          )}
-          {tcpEstab && (
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 mb-1">
-                  <Network className="h-4 w-4 text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground">TCP Connections</p>
-                </div>
-                <p className="font-semibold text-lg">{Number(tcpEstab).toLocaleString()}</p>
-              </CardContent>
-            </Card>
-          )}
-          {!cpuLoad && !pfStates && (
-            <>
+            {cpuLoad && (
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Cpu className="h-4 w-4 text-muted-foreground" />
+                    <p className="text-xs text-muted-foreground">CPU</p>
+                  </div>
+                  <p className="font-semibold">{cpuLoad}</p>
+                  {(system.cpu_load_5 != null || system.cpu_load_15 != null) && (
+                    <p className="text-xs text-muted-foreground mt-0.5">{s(system.cpu_load_5)} / {s(system.cpu_load_15)}</p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+            {(memTotal > 0 || memPercent !== null) && (
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <MemoryStick className="h-4 w-4 text-muted-foreground" />
+                    <p className="text-xs text-muted-foreground">Memory</p>
+                  </div>
+                  {memTotal > 0 ? (
+                    <>
+                      <p className="font-semibold">{formatKB(memUsed)} / {formatKB(memTotal)}</p>
+                      <MiniBar value={memUsed} max={memTotal} color={memPercent && memPercent > 90 ? 'bg-red-500' : memPercent && memPercent > 70 ? 'bg-yellow-500' : 'bg-blue-500'} />
+                    </>
+                  ) : memPercent !== null ? (
+                    <>
+                      <p className="font-semibold">{memPercent}%</p>
+                      <MiniBar value={memPercent} max={100} color={memPercent > 90 ? 'bg-red-500' : memPercent > 70 ? 'bg-yellow-500' : 'bg-blue-500'} />
+                    </>
+                  ) : null}
+                </CardContent>
+              </Card>
+            )}
+            {pfStates != null && (
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Shield className="h-4 w-4 text-muted-foreground" />
+                    <p className="text-xs text-muted-foreground">PF States</p>
+                  </div>
+                  <p className="font-semibold text-lg">{n(pfStates).toLocaleString()}</p>
+                </CardContent>
+              </Card>
+            )}
+            {tcpEstab != null && (
               <Card>
                 <CardContent className="p-4">
                   <div className="flex items-center gap-2 mb-1">
                     <Network className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-xs text-muted-foreground">Interfaces</p>
+                    <p className="text-xs text-muted-foreground">TCP Conn</p>
                   </div>
-                  <p className="font-semibold">
-                    <span className="text-green-500">{ifCounts?.up ?? upCount} up</span>
-                    {' / '}
-                    <span className="text-muted-foreground">{ifCounts?.down ?? downCount} down</span>
-                  </p>
+                  <p className="font-semibold text-lg">{n(tcpEstab).toLocaleString()}</p>
                 </CardContent>
               </Card>
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <ArrowRightLeft className="h-4 w-4 text-muted-foreground" />
-                    <p className="text-xs text-muted-foreground">ARP Entries</p>
-                  </div>
-                  <p className="font-semibold text-lg">{arpTable.length}</p>
-                </CardContent>
-              </Card>
-            </>
-          )}
-        </div>
-      )}
+            )}
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Network className="h-4 w-4 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">Interfaces</p>
+                </div>
+                <p className="font-semibold">
+                  <span className="text-green-500">{ifCounts.up ?? upCount} up</span>
+                  {' / '}
+                  <span className="text-muted-foreground">{ifCounts.down ?? downCount} down</span>
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
-      {/* Description banner */}
-      {system?.description && (
-        <Card>
-          <CardContent className="p-3">
-            <p className="text-xs text-muted-foreground truncate" title={system.description}>
-              {system.description}
-            </p>
-          </CardContent>
-        </Card>
-      )}
+        {/* Tabs */}
+        <Tabs defaultValue="interfaces">
+          <TabsList>
+            <TabsTrigger value="interfaces">
+              <Network className="h-4 w-4 mr-2" />Interfaces ({physicalIfs.length})
+            </TabsTrigger>
+            <TabsTrigger value="arp">
+              <ArrowRightLeft className="h-4 w-4 mr-2" />ARP ({arpTable.length})
+            </TabsTrigger>
+            <TabsTrigger value="routes">
+              <Route className="h-4 w-4 mr-2" />Gateways ({gateways.length})
+            </TabsTrigger>
+          </TabsList>
 
-      {/* Tabs */}
-      <Tabs defaultValue="interfaces">
-        <TabsList>
-          <TabsTrigger value="interfaces">
-            <Network className="h-4 w-4 mr-2" />Interfaces ({physicalIfs.length})
-          </TabsTrigger>
-          <TabsTrigger value="arp">
-            <ArrowRightLeft className="h-4 w-4 mr-2" />ARP Table ({arpTable.length})
-          </TabsTrigger>
-          <TabsTrigger value="routes">
-            <Route className="h-4 w-4 mr-2" />Routes ({(gateways as unknown[]).length})
-          </TabsTrigger>
-        </TabsList>
-
-        {/* Interfaces Tab */}
-        <TabsContent value="interfaces" className="space-y-3">
-          <div className="flex gap-2 items-center flex-wrap">
-            <Input
-              placeholder="Filter interfaces..."
-              value={ifFilter}
-              onChange={(e) => setIfFilter(e.target.value)}
-              className="max-w-xs"
-            />
-            <div className="flex gap-1">
-              <Button
-                variant={ifStatusFilter === 'all' ? 'default' : 'outline'}
-                size="sm" className="h-7 text-xs"
-                onClick={() => setIfStatusFilter('all')}
-              >All</Button>
-              <Button
-                variant={ifStatusFilter === 'up' ? 'default' : 'outline'}
-                size="sm" className="h-7 text-xs"
-                onClick={() => setIfStatusFilter('up')}
-              >Up ({upCount})</Button>
-              <Button
-                variant={ifStatusFilter === 'down' ? 'default' : 'outline'}
-                size="sm" className="h-7 text-xs"
-                onClick={() => setIfStatusFilter('down')}
-              >Down ({downCount})</Button>
+          {/* Interfaces Tab */}
+          <TabsContent value="interfaces" className="space-y-3">
+            <div className="flex gap-2 items-center flex-wrap">
+              <Input placeholder="Filter interfaces..." value={ifFilter} onChange={(e) => setIfFilter(e.target.value)} className="max-w-xs" />
+              <div className="flex gap-1">
+                {(['all', 'up', 'down'] as const).map((f) => (
+                  <Button key={f} variant={ifStatusFilter === f ? 'default' : 'outline'} size="sm" className="h-7 text-xs" onClick={() => setIfStatusFilter(f)}>
+                    {f === 'all' ? 'All' : f === 'up' ? `Up (${upCount})` : `Down (${downCount})`}
+                  </Button>
+                ))}
+              </div>
             </div>
-          </div>
+            <div className="rounded-md border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    {ifHeaders.map(([key, label]) => (
+                      <th key={key} className="p-3 text-left font-medium cursor-pointer select-none hover:bg-muted/80" onClick={() => handleIfSort(key)}>
+                        <span className="inline-flex items-center">{label}<SortIcon active={ifSortKey === key} dir={ifSortDir} /></span>
+                      </th>
+                    ))}
+                    <th className="p-3 text-left font-medium">Errors</th>
+                    <th className="p-3 text-left font-medium">Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedIfs.map((iface, idx) => {
+                    const ips = Array.isArray(iface.ip_addresses) ? iface.ip_addresses : []
+                    return (
+                      <tr key={idx} className="border-b hover:bg-muted/30">
+                        <td className="p-3 font-mono font-medium">{s(iface.name) || '-'}</td>
+                        <td className="p-3 text-xs font-mono">
+                          {ips.length > 0 ? ips.map((ip: unknown, i: number) => <div key={i}>{s(ip)}</div>) : <span className="text-muted-foreground">-</span>}
+                        </td>
+                        <td className="p-3">
+                          <Badge variant={s(iface.oper_status) === 'up' ? 'success' : 'secondary'}>{s(iface.oper_status) || 'unknown'}</Badge>
+                          {s(iface.admin_status) === 'down' && <span className="text-xs text-muted-foreground ml-1">(disabled)</span>}
+                        </td>
+                        <td className="p-3 text-xs">{s(iface.oper_status) === 'up' && n(iface.speed) > 0 ? formatSpeed(n(iface.speed)) : '-'}</td>
+                        <td className="p-3 text-xs font-mono">{formatBytes(n(iface.in_octets))}</td>
+                        <td className="p-3 text-xs font-mono">{formatBytes(n(iface.out_octets))}</td>
+                        <td className="p-3 text-xs">
+                          {(n(iface.in_errors) + n(iface.out_errors)) > 0
+                            ? <span className="text-red-500">{n(iface.in_errors) + n(iface.out_errors)}</span>
+                            : <span className="text-muted-foreground">0</span>}
+                        </td>
+                        <td className="p-3 text-xs text-muted-foreground truncate max-w-[200px]">{s(iface.alias) || '-'}</td>
+                      </tr>
+                    )
+                  })}
+                  {sortedIfs.length === 0 && (
+                    <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">No interfaces found.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </TabsContent>
 
-          <div className="rounded-md border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  {ifHeaders.map(([key, label]) => (
-                    <th
-                      key={key}
-                      className="p-3 text-left font-medium cursor-pointer select-none hover:bg-muted/80 transition-colors"
-                      onClick={() => handleIfSort(key)}
-                    >
-                      <span className="inline-flex items-center">
-                        {label}<SortIcon active={ifSortKey === key} dir={ifSortDir} />
-                      </span>
-                    </th>
+          {/* ARP Table Tab */}
+          <TabsContent value="arp" className="space-y-3">
+            <Input placeholder="Filter by IP or MAC..." value={arpFilter} onChange={(e) => setArpFilter(e.target.value)} className="max-w-xs" />
+            <div className="rounded-md border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    {([['ip', 'IP Address'], ['mac', 'MAC Address'], ['type', 'Type']] as [ArpSortKey, string][]).map(([key, label]) => (
+                      <th key={key} className="p-3 text-left font-medium cursor-pointer select-none hover:bg-muted/80" onClick={() => handleArpSort(key)}>
+                        <span className="inline-flex items-center">{label}<SortIcon active={arpSortKey === key} dir={arpSortDir} /></span>
+                      </th>
+                    ))}
+                    <th className="p-3 text-left font-medium">Interface</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedArp.map((entry, i) => (
+                    <tr key={i} className="border-b hover:bg-muted/30">
+                      <td className="p-3 font-mono">{s(entry.ip)}</td>
+                      <td className="p-3 font-mono text-xs">{s(entry.mac)}</td>
+                      <td className="p-3">
+                        <Badge variant={s(entry.type) === 'dynamic' ? 'outline' : 'secondary'} className="text-xs">{s(entry.type) || '-'}</Badge>
+                      </td>
+                      <td className="p-3 text-xs text-muted-foreground">{s(entry.interface) || '-'}</td>
+                    </tr>
                   ))}
-                  <th className="p-3 text-left font-medium">Errors</th>
-                  <th className="p-3 text-left font-medium">Description</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedIfs.map((iface: PfSenseInterface) => (
-                  <tr key={iface.index} className="border-b hover:bg-muted/30">
-                    <td className="p-3 font-mono font-medium">{iface.name}</td>
-                    <td className="p-3 text-xs font-mono">
-                      {iface.ip_addresses?.length > 0
-                        ? iface.ip_addresses.map((ip, i) => <div key={i}>{ip}</div>)
-                        : <span className="text-muted-foreground">-</span>
-                      }
-                    </td>
-                    <td className="p-3">
-                      <Badge variant={iface.oper_status === 'up' ? 'success' : 'secondary'}>
-                        {iface.oper_status}
-                      </Badge>
-                      {iface.admin_status === 'down' && (
-                        <span className="text-xs text-muted-foreground ml-1">(disabled)</span>
-                      )}
-                    </td>
-                    <td className="p-3 text-xs">
-                      {iface.oper_status === 'up' && iface.speed > 0 ? formatSpeed(iface.speed) : '-'}
-                    </td>
-                    <td className="p-3 text-xs font-mono">{formatBytes(iface.in_octets)}</td>
-                    <td className="p-3 text-xs font-mono">{formatBytes(iface.out_octets)}</td>
-                    <td className="p-3 text-xs">
-                      {(iface.in_errors + iface.out_errors) > 0 ? (
-                        <span className="text-red-500">{iface.in_errors + iface.out_errors}</span>
-                      ) : (
-                        <span className="text-muted-foreground">0</span>
-                      )}
-                    </td>
-                    <td className="p-3 text-xs text-muted-foreground truncate max-w-[200px]" title={iface.alias}>
-                      {iface.alias || '-'}
-                    </td>
-                  </tr>
-                ))}
-                {sortedIfs.length === 0 && (
-                  <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">No interfaces found.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </TabsContent>
+                  {sortedArp.length === 0 && (
+                    <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">No ARP entries.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </TabsContent>
 
-        {/* ARP Table Tab */}
-        <TabsContent value="arp" className="space-y-3">
-          <Input
-            placeholder="Filter by IP or MAC..."
-            value={arpFilter}
-            onChange={(e) => setArpFilter(e.target.value)}
-            className="max-w-xs"
-          />
-          <div className="rounded-md border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  {([['ip', 'IP Address'], ['mac', 'MAC Address'], ['type', 'Type']] as [ArpSortKey, string][]).map(([key, label]) => (
-                    <th
-                      key={key}
-                      className="p-3 text-left font-medium cursor-pointer select-none hover:bg-muted/80 transition-colors"
-                      onClick={() => handleArpSort(key)}
-                    >
-                      <span className="inline-flex items-center">
-                        {label}<SortIcon active={arpSortKey === key} dir={arpSortDir} />
-                      </span>
-                    </th>
+          {/* Gateways Tab */}
+          <TabsContent value="routes">
+            <div className="rounded-md border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="p-3 text-left font-medium">Name</th>
+                    <th className="p-3 text-left font-medium">Gateway</th>
+                    <th className="p-3 text-left font-medium">Interface</th>
+                    <th className="p-3 text-left font-medium">Monitor</th>
+                    <th className="p-3 text-left font-medium">Delay</th>
+                    <th className="p-3 text-left font-medium">Loss</th>
+                    <th className="p-3 text-left font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gateways.map((gw, i) => (
+                    <tr key={i} className="border-b hover:bg-muted/30">
+                      <td className="p-3 font-medium text-xs">{s(gw.name) || s(gw.destination) || '-'}</td>
+                      <td className="p-3 font-mono text-xs">{s(gw.gateway) || '-'}</td>
+                      <td className="p-3 text-xs">{s(gw.interface) || '-'}</td>
+                      <td className="p-3 font-mono text-xs">{s(gw.monitor) || '-'}</td>
+                      <td className="p-3 text-xs">{s(gw.delay) || '-'}</td>
+                      <td className="p-3 text-xs">{s(gw.loss) || '-'}</td>
+                      <td className="p-3">
+                        {gw.status ? (
+                          <Badge variant={s(gw.status) === 'online' || s(gw.status) === 'none' ? 'success' : 'destructive'} className="text-xs">
+                            {s(gw.status) === 'none' ? 'online' : s(gw.status)}
+                          </Badge>
+                        ) : '-'}
+                      </td>
+                    </tr>
                   ))}
-                  <th className="p-3 text-left font-medium">Interface</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedArp.map((entry: PfSenseArpEntry, i: number) => (
-                  <tr key={i} className="border-b hover:bg-muted/30">
-                    <td className="p-3 font-mono">{entry.ip}</td>
-                    <td className="p-3 font-mono text-xs">{entry.mac}</td>
-                    <td className="p-3">
-                      <Badge variant={entry.type === 'dynamic' ? 'outline' : 'secondary'} className="text-xs">
-                        {entry.type}
-                      </Badge>
-                    </td>
-                    <td className="p-3 text-xs text-muted-foreground">{entry.interface || '-'}</td>
-                  </tr>
-                ))}
-                {sortedArp.length === 0 && (
-                  <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">No ARP entries found.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </TabsContent>
-
-        {/* Routes Tab */}
-        <TabsContent value="routes">
-          <div className="rounded-md border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  <th className="p-3 text-left font-medium">Destination</th>
-                  <th className="p-3 text-left font-medium">Gateway</th>
-                  <th className="p-3 text-left font-medium">Mask</th>
-                  <th className="p-3 text-left font-medium">Metric</th>
-                  <th className="p-3 text-left font-medium">Interface</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(gateways as Array<{ destination?: string; gateway?: string; mask?: string; metric?: number; interface?: string }>).map((route, i) => (
-                  <tr key={i} className="border-b hover:bg-muted/30">
-                    <td className="p-3 font-mono text-xs">{route.destination || '-'}</td>
-                    <td className="p-3 font-mono text-xs">{route.gateway || '-'}</td>
-                    <td className="p-3 font-mono text-xs">{route.mask || '-'}</td>
-                    <td className="p-3 text-xs">{route.metric ?? '-'}</td>
-                    <td className="p-3 text-xs text-muted-foreground">{route.interface || '-'}</td>
-                  </tr>
-                ))}
-                {(gateways as unknown[]).length === 0 && (
-                  <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">No routes found.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </TabsContent>
-      </Tabs>
-    </div>
+                  {gateways.length === 0 && (
+                    <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">No gateways found.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </PfSenseErrorBoundary>
   )
 }

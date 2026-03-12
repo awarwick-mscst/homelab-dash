@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import {
   Plus, ExternalLink, Trash2, Activity, CheckCircle, XCircle, AlertTriangle,
   Server, Monitor, Flame, Wifi, Network, Shield, Scan, HelpCircle,
-  ArrowRight, LayoutDashboard, Pin,
+  ArrowRight, LayoutDashboard, Pin, Globe,
 } from 'lucide-react'
 import type { MonitoredService, ServiceStatus, Device } from '@/types'
 
@@ -144,6 +144,9 @@ export default function DashboardPage() {
     if (msg.type === 'service_status') {
       queryClient.invalidateQueries({ queryKey: ['services'] })
     }
+    if (msg.type === 'device_monitor') {
+      queryClient.invalidateQueries({ queryKey: ['devices'] })
+    }
   })
 
   const addMutation = useMutation({
@@ -165,6 +168,8 @@ export default function DashboardPage() {
   const offline = services.filter((s) => s.status === 'offline').length
   const degraded = services.filter((s) => s.status === 'degraded').length
   const onlineDevices = devices.filter((d) => d.is_online).length
+  const internetDevice = devices.find((d) => d.device_type === 'internet')
+  const internetUp = internetDevice?.is_online ?? null
   const recentScans = scans.filter((s) => s.status === 'completed').length
   const runningScans = scans.filter((s) => s.status === 'running').length
 
@@ -221,7 +226,16 @@ export default function DashboardPage() {
       </div>
 
       {/* Overview Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+        <Card className={internetUp === null ? '' : internetUp ? 'border-green-500/30' : 'border-red-500/30'}>
+          <CardContent className="p-4 text-center">
+            <Globe className={`h-5 w-5 mx-auto mb-1 ${internetUp === null ? 'text-muted-foreground' : internetUp ? 'text-green-500' : 'text-red-500'}`} />
+            <p className="text-2xl font-bold">{internetUp === null ? '-' : internetUp ? 'Up' : 'Down'}</p>
+            <p className="text-xs text-muted-foreground">
+              Internet{internetDevice?.response_time_ms != null && <span className="ml-1">({internetDevice.response_time_ms}ms)</span>}
+            </p>
+          </CardContent>
+        </Card>
         <Link to="/devices">
           <Card className="hover:bg-muted/30 transition-colors cursor-pointer">
             <CardContent className="p-4 text-center">

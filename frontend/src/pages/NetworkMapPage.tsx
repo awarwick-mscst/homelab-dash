@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
+import { useCallback, useEffect, useRef, useState, useMemo, useLayoutEffect } from 'react'
 import ReactFlow, {
   Node, Edge, useNodesState, useEdgesState, Controls, Background, MiniMap,
   MarkerType, Handle, Position, Connection, NodeDragHandler,
@@ -143,8 +143,8 @@ const iconServer = <svg width="18" height="18" viewBox="0 0 24 24" fill="none" s
 const iconMonitor = <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
 const iconBox = <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>
 
-function InternetNode({ data }: { data: { label: string; ip: string } }) {
-  return <UnifiNode icon={iconGlobe} color="#3b82f6" bgFrom="#1e293b" bgTo="#0f172a" label={data.label} ip={data.ip} />
+function InternetNode({ data }: { data: { label: string; ip: string; online: boolean } }) {
+  return <UnifiNode icon={iconGlobe} color="#3b82f6" bgFrom="#1e293b" bgTo="#0f172a" label={data.label} ip={data.ip} online={data.online} />
 }
 function FirewallNode({ data }: { data: { label: string; ip: string; online: boolean } }) {
   return <UnifiNode icon={iconShield} color="#ef4444" bgFrom="#1e293b" bgTo="#0f172a" label={data.label} ip={data.ip} online={data.online} topH={3} bottomH={3} />
@@ -310,6 +310,16 @@ export default function NetworkMapPage() {
   const [changeTypeValue, setChangeTypeValue] = useState('')
   const [autoLinkResult, setAutoLinkResult] = useState<string | null>(null)
 
+  // ReactFlow v10 needs the container to have dimensions at mount time.
+  // On a hard refresh the layout may not be painted yet, so delay mounting.
+  const [flowReady, setFlowReady] = useState(false)
+  const flowContainerRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    // Wait one frame so the container has been laid out by the browser
+    const id = requestAnimationFrame(() => setFlowReady(true))
+    return () => cancelAnimationFrame(id)
+  }, [])
+
   const saveMutation = useMutation({
     mutationFn: (layoutData: Record<string, unknown>) => saveTopology({ name: 'default', layout_data: layoutData }),
   })
@@ -413,6 +423,14 @@ export default function NetworkMapPage() {
     setLinkSource(c.source); setLinkTarget(c.target); setLinkSourcePort(''); setLinkTargetPort(''); setLinkType('ethernet'); setLinkBandwidth(''); setAddLinkOpen(true)
   }, [])
 
+  const onEdgeClick = useCallback((_: React.MouseEvent, e: Edge) => setSelectedEdge(p => p === e.id ? null : e.id), [])
+  const onPaneClick = useCallback(() => setSelectedEdge(null), [])
+  const onNodeContextMenu = useCallback((ev: React.MouseEvent, node: Node) => {
+    ev.preventDefault()
+    const d = devices.find(x => String(x.id) === node.id)
+    if (d) { setChangeTypeDeviceId(d.id); setChangeTypeValue(d.device_type); setChangeTypeOpen(true) }
+  }, [devices])
+
   const handleSave = useCallback(() => {
     const all: Record<string, { x: number; y: number }> = {}
     for (const n of nodes) all[n.id] = n.position
@@ -475,24 +493,26 @@ export default function NetworkMapPage() {
           <p>No devices to display. Add devices or run a scan first.</p>
         </CardContent></Card>
       ) : (
-        <div className="h-[calc(100vh-240px)] border rounded-lg overflow-hidden" style={{ background: '#0f172a' }}>
-          <ReactFlow
-            nodes={nodes} edges={edges}
-            onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
-            onNodeDragStop={onNodeDragStop} onConnect={onConnect}
-            onEdgeClick={useCallback((_: React.MouseEvent, e: Edge) => setSelectedEdge(p => p === e.id ? null : e.id), [])}
-            onPaneClick={useCallback(() => setSelectedEdge(null), [])}
-            onNodeContextMenu={useCallback((ev: React.MouseEvent, node: Node) => {
-              ev.preventDefault()
-              const d = devices.find(x => String(x.id) === node.id)
-              if (d) { setChangeTypeDeviceId(d.id); setChangeTypeValue(d.device_type); setChangeTypeOpen(true) }
-            }, [devices])}
-            nodeTypes={nodeTypes} fitView snapToGrid snapGrid={[10, 10]}
-          >
-            <Controls />
-            <MiniMap style={{ background: '#1e293b' }} nodeColor={() => '#334155'} />
-            <Background gap={30} color="#1e293b" />
-          </ReactFlow>
+        <div ref={flowContainerRef} className="h-[calc(100vh-240px)] border rounded-lg overflow-hidden" style={{ background: '#0f172a' }}>
+          {flowReady ? (
+            <ReactFlow
+              nodes={nodes} edges={edges}
+              onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+              onNodeDragStop={onNodeDragStop} onConnect={onConnect}
+              onEdgeClick={onEdgeClick}
+              onPaneClick={onPaneClick}
+              onNodeContextMenu={onNodeContextMenu}
+              nodeTypes={nodeTypes} fitView snapToGrid snapGrid={[10, 10]}
+            >
+              <Controls />
+              <MiniMap style={{ background: '#1e293b' }} nodeColor={() => '#334155'} />
+              <Background gap={30} color="#1e293b" />
+            </ReactFlow>
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+            </div>
+          )}
         </div>
       )}
 

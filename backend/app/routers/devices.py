@@ -7,6 +7,7 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
 from app.models.device import Device
+from app.models.network import NetworkLink
 from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceResponse, DeviceMonitorUpdate, DevicePinUpdate
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
@@ -43,6 +44,26 @@ async def create_device(
     await db.commit()
     await db.refresh(device, ["ports"])
     return device
+
+
+@router.get("/switch-ports")
+async def get_switch_ports(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Return a map of device_id -> switch port from auto-switch links."""
+    result = await db.execute(
+        select(NetworkLink).where(
+            NetworkLink.notes.like("Auto-linked to switch%"),
+            NetworkLink.source_port_label.isnot(None),
+        )
+    )
+    links = result.scalars().all()
+    return {
+        str(link.target_device_id): link.source_port_label
+        for link in links
+        if link.source_port_label
+    }
 
 
 @router.get("/{device_id}", response_model=DeviceResponse)

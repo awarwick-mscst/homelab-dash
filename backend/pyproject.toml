@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "homelab-dash"
-version = "0.1.0"
+version = "0.2.3"
 description = "Homelab dashboard backend"
 requires-python = ">=3.11"
 dependencies = [
@@ -22,6 +22,9 @@ dependencies = [
     "apscheduler>=3.10.4",
     "websockets>=12.0",
     "pysnmp-lextudio>=6.1.0",
+    "asyncssh>=2.14.0",
+    "fpdf2>=2.7.0",
+    "dnspython>=2.4.0",
 ]
 
 [tool.hatch.build.targets.wheel]

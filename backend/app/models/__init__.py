@@ -5,6 +5,7 @@ from app.models.network import Subnet, NetworkLink, TopologyLayout
 from app.models.scan import ScanJob, ScanSchedule
 from app.models.advisory import AdvisoryReport, AdvisoryFinding
 from app.models.app_settings import AppSetting
+from app.models.dns import DnsMonitoredDomain, DnsSnapshot, DnsChange
 
 __all__ = [
     "User",
@@ -19,4 +20,7 @@ __all__ = [
     "AdvisoryReport",
     "AdvisoryFinding",
     "AppSetting",
+    "DnsMonitoredDomain",
+    "DnsSnapshot",
+    "DnsChange",
 ]

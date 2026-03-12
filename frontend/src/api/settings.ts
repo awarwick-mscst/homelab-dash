@@ -49,8 +49,13 @@ export async function updateOllamaSettings(settings: {
 
 export async function updateSwitchSettings(settings: {
   host: string
+  mode?: string
+  username?: string
+  password?: string
+  ssh_port?: number
+  enable_password?: string
   community?: string
-  port?: number
+  snmp_port?: number
 }): Promise<void> {
   await api.put('/settings/switch', settings)
 }

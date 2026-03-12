@@ -172,6 +172,7 @@ export interface Settings {
   ollama_model: string
   switch_host: string
   switch_configured: boolean
+  switch_mode: string
   health_check_interval: number
   proxmox_poll_interval: number
 }
@@ -209,6 +210,35 @@ export interface SwitchSystemInfo {
   contact: string
   hostname: string
   location: string
+}
+
+export interface DnsMonitoredDomain {
+  id: number
+  domain: string
+  subdomains: string[] | null
+  is_active: boolean
+  check_interval_seconds: number
+  created_at: string
+}
+
+export interface DnsSnapshot {
+  id: number
+  domain_id: number
+  records: Record<string, Record<string, unknown[]>>
+  error_message: string | null
+  created_at: string
+}
+
+export interface DnsChange {
+  id: number
+  domain_id: number
+  snapshot_id: number
+  host: string | null
+  record_type: string
+  change_type: 'added' | 'removed' | 'modified'
+  old_value: string | null
+  new_value: string | null
+  created_at: string
 }
 
 export interface PfSenseSystemInfo {

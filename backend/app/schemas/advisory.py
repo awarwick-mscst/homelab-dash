@@ -26,6 +26,7 @@ class AdvisoryReportResponse(BaseModel):
     medium_count: int
     low_count: int
     info_count: int
+    ai_summary: str | None = None
     created_at: datetime
     findings: list[AdvisoryFindingResponse] = []
 

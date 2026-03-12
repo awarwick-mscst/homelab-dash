@@ -2,11 +2,13 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getSettings, updateProxmoxServers, updatePfSenseSettings, updateUniFiSettings, updateOllamaSettings, updateSwitchSettings } from '@/api/settings'
 import { getOllamaModels } from '@/api/ollama'
+import { testConnection as testPfSense } from '@/api/pfsense'
+import { testSwitchConnection } from '@/api/switch'
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Save, Plus, Trash2 } from 'lucide-react'
+import { Save, Plus, Trash2, Zap } from 'lucide-react'
 
 type ProxmoxAuthMode = 'password' | 'token'
 type PfSenseMode = 'snmp' | 'api'
@@ -51,6 +53,13 @@ export default function SettingsPage() {
       if (settings.pfsense_mode) {
         setPfsenseMode(settings.pfsense_mode === 'snmp' ? 'snmp' : 'api')
       }
+      if (settings.switch_host) {
+        setSwitchCfg(prev => ({
+          ...prev,
+          host: settings.switch_host,
+          mode: (settings.switch_mode === 'snmp' ? 'snmp' : 'ssh') as 'ssh' | 'snmp',
+        }))
+      }
       setInitialized(true)
     }
   }, [settings, initialized])
@@ -64,7 +73,11 @@ export default function SettingsPage() {
     host: '', username: '', password: '', site: 'default', verify_ssl: false,
   })
   const [ollama, setOllama] = useState({ host: '', model: 'llama3' })
-  const [switchCfg, setSwitchCfg] = useState({ host: '', community: 'public', port: 161 })
+  const [switchCfg, setSwitchCfg] = useState({
+    host: '', mode: 'ssh' as 'ssh' | 'snmp',
+    username: '', password: '', ssh_port: 22, enable_password: '',
+    community: 'public', snmp_port: 161,
+  })
 
   const { data: ollamaModels } = useQuery({
     queryKey: ['ollama', 'models'],
@@ -124,6 +137,16 @@ export default function SettingsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
       queryClient.invalidateQueries({ queryKey: ['switch'] })
+    },
+  })
+
+  const pfTestMutation = useMutation({ mutationFn: testPfSense })
+  const switchTestMutation = useMutation({
+    mutationFn: async () => {
+      // Auto-save before testing so the backend has the latest config
+      await updateSwitchSettings(switchCfg)
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      return testSwitchConnection()
     },
   })
 
@@ -320,18 +343,20 @@ export default function SettingsPage() {
             </div>
           ) : (
             <div className="rounded-md bg-muted p-4 text-sm space-y-2">
-              <p className="font-medium">API Setup Instructions</p>
+              <p className="font-medium">pfSense REST API Setup (pfrest)</p>
               <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                <li>Log into your pfSense web UI</li>
-                <li>Go to <span className="font-mono text-xs">System &gt; Package Manager &gt; Available Packages</span></li>
-                <li>Search for and install <span className="font-semibold text-foreground">pfSense-pkg-API</span></li>
-                <li>After install, go to <span className="font-mono text-xs">System &gt; REST API &gt; Settings</span></li>
-                <li>Set Authentication Mode to <span className="font-semibold text-foreground">API Token</span></li>
-                <li>Go to <span className="font-mono text-xs">System &gt; REST API &gt; Keys</span> and click <span className="font-semibold text-foreground">+ Add</span></li>
-                <li>Copy the generated <span className="font-semibold text-foreground">Client ID</span> into API Key and <span className="font-semibold text-foreground">Client Token</span> into API Secret below</li>
+                <li>SSH into your pfSense box or use <span className="font-mono text-xs">Diagnostics &gt; Command Prompt</span></li>
+                <li>Install the REST API package:
+                  <pre className="bg-background rounded p-2 mt-1 mb-1 text-xs overflow-x-auto select-all">pkg-static add https://github.com/pfrest/pfSense-pkg-RESTAPI/releases/latest/download/pfSense-2.8.1-pkg-RESTAPI.pkg</pre>
+                </li>
+                <li>In the pfSense web UI, go to <span className="font-mono text-xs">System &gt; REST API &gt; Settings</span></li>
+                <li>Ensure <span className="font-semibold text-foreground">Authentication Mode</span> includes <span className="font-semibold text-foreground">API Key</span></li>
+                <li>Go to <span className="font-mono text-xs">System &gt; REST API &gt; Keys</span>, click <span className="font-semibold text-foreground">+ Add</span></li>
+                <li>Copy the generated key and paste it below as <span className="font-semibold text-foreground">API Key</span></li>
               </ol>
               <p className="text-xs text-muted-foreground mt-2">
-                If your plugin only generates a single key, just paste it as the API Key and leave the secret blank.
+                Uses <span className="font-mono">X-API-Key</span> header auth via <a href="https://pfrest.org" target="_blank" rel="noreferrer" className="underline">pfrest.org</a>.
+                Swagger docs available at <span className="font-mono">System &gt; REST API &gt; Documentation</span> on your pfSense.
               </p>
             </div>
           )}
@@ -354,21 +379,43 @@ export default function SettingsPage() {
                 </div>
               </div>
             ) : (
-              <>
-                <div className="space-y-1">
+              <div className="space-y-1">
                   <label className="text-sm font-medium">API Key</label>
-                  <Input placeholder="Paste your API key here" value={pfsense.api_key} onChange={(e) => setPfsense({ ...pfsense, api_key: e.target.value })} />
+                  <Input placeholder="Paste your API key from System > REST API > Keys" value={pfsense.api_key} onChange={(e) => setPfsense({ ...pfsense, api_key: e.target.value })} />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium">API Secret <span className="text-muted-foreground font-normal">(optional)</span></label>
-                  <Input type="password" placeholder="Client token (leave blank if not provided)" value={pfsense.api_secret} onChange={(e) => setPfsense({ ...pfsense, api_secret: e.target.value })} />
-                </div>
-              </>
             )}
 
-            <Button type="submit" disabled={pfsenseMutation.isPending}>
-              <Save className="h-4 w-4 mr-2" />Save
-            </Button>
+            <div className="flex gap-2">
+              <Button type="submit" disabled={pfsenseMutation.isPending}>
+                <Save className="h-4 w-4 mr-2" />Save
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={pfTestMutation.isPending}
+                onClick={() => pfTestMutation.mutate()}
+              >
+                <Zap className="h-4 w-4 mr-2" />{pfTestMutation.isPending ? 'Testing...' : 'Test Connection'}
+              </Button>
+            </div>
+            {pfTestMutation.data && (() => {
+              const r = pfTestMutation.data as Record<string, string | number | boolean>
+              return (
+                <div className="rounded-md border p-4 space-y-2 mt-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant={r.ok ? 'success' : 'destructive'}>
+                      {r.ok ? 'Connected' : 'Failed'}
+                    </Badge>
+                    {r.status_code && <span className="text-xs text-muted-foreground">HTTP {String(r.status_code)}</span>}
+                  </div>
+                  {r.url && <p className="text-xs font-mono text-muted-foreground">{String(r.url)}</p>}
+                  {r.error && <p className="text-sm text-destructive">{String(r.error)}</p>}
+                  {r.response_body && (
+                    <pre className="p-2 bg-muted rounded text-xs overflow-x-auto max-h-40 whitespace-pre-wrap">{String(r.response_body)}</pre>
+                  )}
+                </div>
+              )
+            })()}
           </form>
         </CardContent>
       </Card>
@@ -442,8 +489,8 @@ export default function SettingsPage() {
       {/* Switch Settings */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Network Switch (SNMP)</CardTitle>
-          <CardDescription>Connect to your Cisco SF300/SG300 or other SNMP-capable managed switch.</CardDescription>
+          <CardTitle className="text-base">Network Switch</CardTitle>
+          <CardDescription>Connect to your Cisco SG300/SF300 or other managed switch via SSH or SNMP.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={(e) => { e.preventDefault(); switchMutation.mutate() }} className="space-y-3">
@@ -451,20 +498,98 @@ export default function SettingsPage() {
               <label className="text-sm font-medium">Host (IP address)</label>
               <Input placeholder="192.168.1.20" value={switchCfg.host} onChange={(e) => setSwitchCfg({ ...switchCfg, host: e.target.value })} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-sm font-medium">Community String</label>
-                <Input placeholder="public" value={switchCfg.community} onChange={(e) => setSwitchCfg({ ...switchCfg, community: e.target.value })} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium">SNMP Port</label>
-                <Input type="number" placeholder="161" value={switchCfg.port} onChange={(e) => setSwitchCfg({ ...switchCfg, port: parseInt(e.target.value) || 161 })} />
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Connection Mode</label>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" variant={switchCfg.mode === 'ssh' ? 'default' : 'outline'} onClick={() => setSwitchCfg({ ...switchCfg, mode: 'ssh' })}>SSH (recommended)</Button>
+                <Button type="button" size="sm" variant={switchCfg.mode === 'snmp' ? 'default' : 'outline'} onClick={() => setSwitchCfg({ ...switchCfg, mode: 'snmp' })}>SNMP</Button>
               </div>
             </div>
-            <Button type="submit" disabled={switchMutation.isPending}>
-              <Save className="h-4 w-4 mr-2" />Save
-            </Button>
+
+            {switchCfg.mode === 'ssh' ? (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium">Username</label>
+                    <Input placeholder="admin" value={switchCfg.username} onChange={(e) => setSwitchCfg({ ...switchCfg, username: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium">Password</label>
+                    <Input type="password" placeholder="password" value={switchCfg.password} onChange={(e) => setSwitchCfg({ ...switchCfg, password: e.target.value })} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium">SSH Port</label>
+                    <Input type="number" placeholder="22" value={switchCfg.ssh_port} onChange={(e) => setSwitchCfg({ ...switchCfg, ssh_port: parseInt(e.target.value) || 22 })} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium">Enable Password (optional)</label>
+                    <Input type="password" placeholder="enable password" value={switchCfg.enable_password} onChange={(e) => setSwitchCfg({ ...switchCfg, enable_password: e.target.value })} />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Community String</label>
+                  <Input placeholder="public" value={switchCfg.community} onChange={(e) => setSwitchCfg({ ...switchCfg, community: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">SNMP Port</label>
+                  <Input type="number" placeholder="161" value={switchCfg.snmp_port} onChange={(e) => setSwitchCfg({ ...switchCfg, snmp_port: parseInt(e.target.value) || 161 })} />
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button type="submit" disabled={switchMutation.isPending}>
+                <Save className="h-4 w-4 mr-2" />Save
+              </Button>
+              <Button type="button" variant="outline" disabled={switchTestMutation.isPending} onClick={() => switchTestMutation.mutate()}>
+                <Zap className="h-4 w-4 mr-2" />Test Connection
+              </Button>
+            </div>
           </form>
+          {switchTestMutation.data && (
+            <div className="mt-3 p-3 rounded-md border space-y-1">
+              <div className="flex items-center gap-2">
+                <Badge variant={switchTestMutation.data.ok ? 'success' : 'destructive'}>
+                  {switchTestMutation.data.ok ? 'Connected' : 'Failed'}
+                </Badge>
+                {switchTestMutation.data.host && <span className="text-xs font-mono">{switchTestMutation.data.host}</span>}
+                {switchTestMutation.data.mode && <span className="text-xs text-muted-foreground">({String(switchTestMutation.data.mode)})</span>}
+              </div>
+              {switchTestMutation.data.ok && switchTestMutation.data.system && (
+                <p className="text-xs text-muted-foreground">
+                  {switchTestMutation.data.system.hostname || 'Unknown'} — {switchTestMutation.data.system.description || ''}
+                </p>
+              )}
+              {switchTestMutation.data.ok && switchTestMutation.data.output && (
+                <pre className="text-xs p-2 bg-muted rounded mt-1 overflow-auto max-h-40 whitespace-pre-wrap">{String(switchTestMutation.data.output)}</pre>
+              )}
+              {switchTestMutation.data.error && (
+                <p className="text-sm text-destructive">{switchTestMutation.data.error}</p>
+              )}
+            </div>
+          )}
+          {switchTestMutation.error && (
+            <div className="mt-3 p-3 rounded-md border">
+              <Badge variant="destructive">Error</Badge>
+              <p className="text-sm text-destructive mt-1">{switchTestMutation.error instanceof Error ? switchTestMutation.error.message : 'Request failed'}</p>
+            </div>
+          )}
+          <div className="mt-4 p-3 rounded-md bg-muted/50 text-xs text-muted-foreground space-y-1">
+            <p className="font-medium">Setup Instructions (SSH — recommended):</p>
+            <p>1. Enable SSH on your switch: Management &gt; Security &gt; SSH Server</p>
+            <p>2. Use the same credentials you use for the web UI</p>
+            <p>3. If your switch has an enable password, enter it in the optional field</p>
+            <p className="font-medium mt-2">Setup Instructions (SNMP — legacy):</p>
+            <p>1. Enable SNMP v2c on the switch: Management &gt; SNMP &gt; Communities</p>
+            <p>2. Set a community string (default is &quot;public&quot; for read-only)</p>
+            <p>3. Ensure the LXC/server IP is allowed to query SNMP</p>
+          </div>
         </CardContent>
       </Card>
     </div>

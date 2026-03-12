@@ -110,8 +110,13 @@ async def restore_saved_settings(db: AsyncSession):
     if sw and isinstance(sw, dict):
         switch_client.update_config(
             host=sw.get("host", ""),
+            mode=sw.get("mode", "ssh"),
+            username=sw.get("username", ""),
+            password=sw.get("password", ""),
+            ssh_port=sw.get("ssh_port", 22),
+            enable_password=sw.get("enable_password", ""),
             community=sw.get("community", "public"),
-            port=sw.get("port", 161),
+            snmp_port=sw.get("snmp_port", 161),
         )
 
 
@@ -142,6 +147,7 @@ async def get_settings(_: User = Depends(get_current_user)):
         ollama_model=ollama_client.model,
         switch_host=switch_client._host,
         switch_configured=switch_client.is_configured,
+        switch_mode=switch_client.mode,
         health_check_interval=settings.health_check_interval,
         proxmox_poll_interval=settings.proxmox_poll_interval,
     )
@@ -236,8 +242,13 @@ async def update_switch_settings(
 ):
     switch_client.update_config(
         host=data.host,
+        mode=data.mode,
+        username=data.username,
+        password=data.password,
+        ssh_port=data.ssh_port,
+        enable_password=data.enable_password,
         community=data.community,
-        port=data.port,
+        snmp_port=data.snmp_port,
     )
     await _save_setting(db, "switch", data.model_dump())
     return {"status": "updated"}

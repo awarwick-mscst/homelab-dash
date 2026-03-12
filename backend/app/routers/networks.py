@@ -1,6 +1,6 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, delete, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -173,31 +173,33 @@ async def auto_link_unifi(
         if d.ip_address:
             dev_by_ip[d.ip_address] = d
 
-    # Load existing links to avoid duplicates
-    result = await db.execute(select(NetworkLink))
-    existing_links = result.scalars().all()
-    existing_pairs: set[tuple[int, int]] = set()
-    for link in existing_links:
-        existing_pairs.add((link.source_device_id, link.target_device_id))
-        existing_pairs.add((link.target_device_id, link.source_device_id))
+    # Collect all AP device IDs so we know which links are WiFi auto-links
+    ap_device_ids: set[int] = set()
+    for ud in unifi_devices:
+        if ud.get("type") in ("uap",):
+            mac = (ud.get("mac") or "").lower()
+            ip = ud.get("ip", "")
+            ap_dev = dev_by_mac.get(mac) or dev_by_ip.get(ip)
+            if ap_dev:
+                ap_device_ids.add(ap_dev.id)
 
-    created = 0
+    # Build the latest connection for each wireless client (most recent wins)
+    # UniFi returns currently-connected clients, so each client appears once
+    # with their current AP — this is already the "latest" connection
+    desired_links: dict[int, dict] = {}  # client_device_id -> link info
+
     skipped = 0
-
     for client in unifi_clients:
-        # Only auto-link wireless clients
         if client.get("is_wired", False):
             continue
 
         client_mac = (client.get("mac") or "").lower()
         client_ip = client.get("ip", "")
-        ap_id = client.get("ap_mac", "")  # UniFi uses ap_mac field
+        ap_id = client.get("ap_mac", "")
 
-        # Find the AP device in our DB
         ap_mac_lower = ap_id.lower() if ap_id else ""
         ap_device = dev_by_mac.get(ap_mac_lower)
         if not ap_device:
-            # Try matching AP by its IP from UniFi device data
             for ud in unifi_devices:
                 if ud.get("mac", "").lower() == ap_mac_lower and ud.get("ip"):
                     ap_device = dev_by_ip.get(ud["ip"])
@@ -207,7 +209,6 @@ async def auto_link_unifi(
             skipped += 1
             continue
 
-        # Find client device in our DB
         client_device = dev_by_mac.get(client_mac)
         if not client_device and client_ip:
             client_device = dev_by_ip.get(client_ip)
@@ -216,49 +217,88 @@ async def auto_link_unifi(
             skipped += 1
             continue
 
-        # Don't link a device to itself
         if ap_device.id == client_device.id:
-            continue
-
-        # Skip if link already exists
-        if (ap_device.id, client_device.id) in existing_pairs:
-            skipped += 1
             continue
 
         essid = client.get("essid", "")
         signal = client.get("signal")
         signal_note = f", signal: {signal} dBm" if signal else ""
 
+        desired_links[client_device.id] = {
+            "ap_device_id": ap_device.id,
+            "essid": essid,
+            "notes": f"Auto-linked from UniFi{signal_note}",
+        }
+
+    # Remove ALL old auto-created WiFi links (notes start with "Auto-linked from UniFi")
+    # This cleans up stale connections to old APs
+    result = await db.execute(select(NetworkLink).where(
+        NetworkLink.link_type == "wifi",
+        NetworkLink.notes.like("Auto-linked from UniFi%"),
+    ))
+    old_wifi_links = result.scalars().all()
+    removed = 0
+    for old_link in old_wifi_links:
+        client_id = old_link.target_device_id
+        # Keep if the desired link is exactly the same AP
+        desired = desired_links.get(client_id)
+        if desired and desired["ap_device_id"] == old_link.source_device_id:
+            continue  # same AP, keep it
+        await db.delete(old_link)
+        removed += 1
+
+    # Now create links for clients that don't already have the correct one
+    # Reload existing links after deletions
+    result = await db.execute(select(NetworkLink))
+    existing_links = result.scalars().all()
+    existing_pairs: set[tuple[int, int]] = set()
+    for link in existing_links:
+        existing_pairs.add((link.source_device_id, link.target_device_id))
+        existing_pairs.add((link.target_device_id, link.source_device_id))
+
+    created = 0
+    for client_id, info in desired_links.items():
+        ap_id = info["ap_device_id"]
+        if (ap_id, client_id) in existing_pairs:
+            continue
+
         link = NetworkLink(
-            source_device_id=ap_device.id,
-            target_device_id=client_device.id,
+            source_device_id=ap_id,
+            target_device_id=client_id,
             link_type="wifi",
-            source_port_label=essid or None,
+            source_port_label=info["essid"] or None,
             target_port_label="WiFi",
-            notes=f"Auto-linked from UniFi{signal_note}",
+            notes=info["notes"],
         )
         db.add(link)
-        existing_pairs.add((ap_device.id, client_device.id))
+        existing_pairs.add((ap_id, client_id))
         created += 1
 
-    if created > 0:
+    if created > 0 or removed > 0:
         await db.commit()
 
     return {
         "created": created,
+        "removed_stale": removed,
         "skipped": skipped,
         "total_wireless_clients": sum(1 for c in unifi_clients if not c.get("is_wired", False)),
         "total_aps": len([u for u in unifi_devices if u.get("type") == "uap"]),
     }
 
 
-# --- Auto-connect unlinked devices to switch ---
+# --- Auto-connect devices to switch using MAC table ---
 @router.post("/links/auto-switch")
 async def auto_link_switch(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    """Connect devices that have no links to the first switch found."""
+    """Match device MACs against the switch MAC table to create links with correct port assignments.
+
+    Falls back to unlinked-device assignment when MAC table is unavailable.
+    Also removes stale auto-created switch links for devices that now have WiFi.
+    """
+    from app.services.switch_client import switch_client
+
     result = await db.execute(select(Device))
     all_devices = result.scalars().all()
 
@@ -269,38 +309,107 @@ async def auto_link_switch(
 
     switch = switches[0]  # primary switch
 
+    # Build device lookup by MAC address (normalized to uppercase colon-separated)
+    def _normalize_mac(mac: str) -> str:
+        mac = mac.upper().replace("-", ":").replace(".", "")
+        # Handle Cisco dot format (already stripped dots above)
+        if len(mac) == 12 and ":" not in mac:
+            mac = ":".join(mac[i:i+2] for i in range(0, 12, 2))
+        return mac
+
+    dev_by_mac: dict[str, Device] = {}
+    for d in all_devices:
+        if d.mac_address:
+            dev_by_mac[_normalize_mac(d.mac_address)] = d
+
+    # Try to get MAC table from switch
+    mac_table: list[dict] = []
+    if switch_client.is_configured:
+        try:
+            mac_table = await switch_client.get_mac_table()
+            logger.info("Switch auto-link: got %d MAC table entries", len(mac_table))
+        except Exception as e:
+            logger.warning("Switch auto-link: MAC table fetch failed: %s", e)
+
+    # Build port assignments: device_id -> switch port name
+    port_assignments: dict[int, str] = {}
+    for entry in mac_table:
+        mac = _normalize_mac(entry.get("mac", ""))
+        port = entry.get("if_index") or entry.get("bridge_port") or ""
+        if not mac or not port:
+            continue
+        device = dev_by_mac.get(mac)
+        if device and device.id != switch.id:
+            port_assignments[device.id] = port
+
     # Load existing links
     result = await db.execute(select(NetworkLink))
     existing_links = result.scalars().all()
 
-    # Build set of devices that already have at least one link
-    linked_device_ids: set[int] = set()
+    wifi_linked_ids: set[int] = set()
+    existing_switch_links: dict[int, NetworkLink] = {}  # target_device_id -> link
     existing_pairs: set[tuple[int, int]] = set()
+    linked_device_ids: set[int] = set()
+
     for link in existing_links:
         linked_device_ids.add(link.source_device_id)
         linked_device_ids.add(link.target_device_id)
         existing_pairs.add((link.source_device_id, link.target_device_id))
         existing_pairs.add((link.target_device_id, link.source_device_id))
+        if link.link_type == "wifi":
+            wifi_linked_ids.add(link.target_device_id)
+            wifi_linked_ids.add(link.source_device_id)
+        if (link.notes or "").startswith("Auto-linked to switch"):
+            existing_switch_links[link.target_device_id] = link
 
+    # Remove stale auto-switch links for devices that now have WiFi
+    removed = 0
+    for dev_id, link in list(existing_switch_links.items()):
+        if dev_id in wifi_linked_ids:
+            await db.delete(link)
+            existing_pairs.discard((link.source_device_id, link.target_device_id))
+            existing_pairs.discard((link.target_device_id, link.source_device_id))
+            del existing_switch_links[dev_id]
+            removed += 1
+
+    # Update existing auto-switch links with correct port info
+    updated = 0
+    for dev_id, link in existing_switch_links.items():
+        port = port_assignments.get(dev_id)
+        if port and link.source_port_label != port:
+            device = next((d for d in all_devices if d.id == dev_id), None)
+            link.source_port_label = port
+            link.target_port_label = device.mac_address if device and device.mac_address else None
+            updated += 1
+
+    # Create new links
     created = 0
-    skip_types = ("internet",)  # don't auto-connect internet nodes to switch
+    skip_types = ("internet",)
 
     for device in all_devices:
         if device.id == switch.id:
             continue
         if device.device_type in skip_types:
             continue
-        # Skip devices that already have any link
-        if device.id in linked_device_ids:
+        if device.id in wifi_linked_ids:
             continue
-        # Skip if already linked to this switch
         if (switch.id, device.id) in existing_pairs:
+            continue
+
+        port = port_assignments.get(device.id)
+        # If we have MAC table data, only link devices we found in the table
+        # If no MAC table, fall back to linking all unlinked devices
+        if mac_table and not port:
+            continue
+        if not mac_table and device.id in linked_device_ids:
             continue
 
         link = NetworkLink(
             source_device_id=switch.id,
             target_device_id=device.id,
             link_type="ethernet",
+            source_port_label=port,
+            target_port_label=device.mac_address if port else None,
             notes="Auto-linked to switch",
         )
         db.add(link)
@@ -308,10 +417,17 @@ async def auto_link_switch(
         linked_device_ids.add(device.id)
         created += 1
 
-    if created > 0:
+    if created > 0 or removed > 0 or updated > 0:
         await db.commit()
 
-    return {"created": created, "switch": switch.hostname or switch.ip_address}
+    return {
+        "created": created,
+        "updated": updated,
+        "removed_stale": removed,
+        "mac_table_entries": len(mac_table),
+        "port_matches": len(port_assignments),
+        "switch": switch.hostname or switch.ip_address,
+    }
 
 
 # --- Auto-link Proxmox VMs/CTs to their host node ---

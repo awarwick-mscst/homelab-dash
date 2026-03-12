@@ -45,3 +45,8 @@ export async function getOverview(): Promise<PfSenseOverview> {
   const { data } = await api.get('/pfsense/overview')
   return data
 }
+
+export async function testConnection(): Promise<Record<string, unknown>> {
+  const { data } = await api.get('/pfsense/test')
+  return data
+}

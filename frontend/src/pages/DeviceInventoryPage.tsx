@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getDevices, createDevice, updateDevice, deleteDevice, toggleDeviceMonitor, toggleDevicePin } from '@/api/devices'
+import { getDevices, createDevice, updateDevice, deleteDevice, toggleDeviceMonitor, toggleDevicePin, getSwitchPorts } from '@/api/devices'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -171,6 +171,7 @@ export default function DeviceInventoryPage() {
   const [form, setForm] = useState({ hostname: '', ip_address: '', device_type: 'unknown', mac_address: '', location: '' })
 
   const { data: devices = [] } = useQuery({ queryKey: ['devices'], queryFn: () => getDevices() })
+  const { data: switchPorts = {} } = useQuery({ queryKey: ['switch-ports'], queryFn: getSwitchPorts })
 
   useWebSocket((msg) => {
     if (msg.type === 'device_monitor') {
@@ -412,7 +413,7 @@ export default function DeviceInventoryPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
-                {([['status', 'Status'], ['hostname', 'Hostname'], ['ip_address', 'IP Address'], ['mac_address', 'MAC'], ['device_type', 'Type'], ['os', 'OS'], ['ports', 'Ports']] as [SortKey, string][]).map(([key, label]) => (
+                {([['status', 'Status'], ['hostname', 'Hostname'], ['ip_address', 'IP Address'], ['mac_address', 'MAC'], ['device_type', 'Type'], ['os', 'OS'], ['ports', 'Ports']] as [SortKey, string][]).map(([key, label]: [SortKey, string]) => (
                   <th
                     key={key}
                     className="p-3 text-left font-medium cursor-pointer select-none hover:bg-muted/80 transition-colors"
@@ -423,6 +424,7 @@ export default function DeviceInventoryPage() {
                     </span>
                   </th>
                 ))}
+                <th className="p-3 text-left font-medium">Switch Port</th>
                 <th className="p-3 text-left font-medium">Actions</th>
               </tr>
             </thead>
@@ -445,6 +447,9 @@ export default function DeviceInventoryPage() {
                       : '-'}
                   </td>
                   <td className="p-3"><PortBadges device={device} /></td>
+                  <td className="p-3 font-mono text-xs">
+                    {switchPorts[String(device.id)] || '-'}
+                  </td>
                   <td className="p-3">
                     <div className="flex gap-1">
                       <Button

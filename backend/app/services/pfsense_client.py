@@ -46,144 +46,175 @@ def _require_pysnmp():
 
 
 class PfSenseClient:
+    """Client for pfrest/pfSense-pkg-RESTAPI (pfrest.org).
+
+    Uses /api/v2 endpoints with X-API-Key header authentication.
+    Generate an API key in pfSense: System > REST API > Keys > + Add.
+    """
+
     def __init__(self):
         self._host = ""
         self._api_key = ""
-        self._api_secret = ""
         self._verify_ssl = False
-        self._api_version = ""  # auto-detected: "v1" or "v2"
+        self._detected_scheme = ""
         self._configure()
 
     def _configure(self):
         if settings.pfsense_host:
             self._host = settings.pfsense_host
             self._api_key = settings.pfsense_api_key
-            self._api_secret = settings.pfsense_api_secret
             self._verify_ssl = settings.pfsense_verify_ssl
 
     def update_config(self, host: str, api_key: str, api_secret: str = "", verify_ssl: bool = False):
         self._host = host
+        # api_secret kept for backwards compat but pfrest only uses api_key
         self._api_key = api_key
-        self._api_secret = api_secret
         self._verify_ssl = verify_ssl
-        self._api_version = ""  # reset so we re-detect
+        self._detected_scheme = ""  # reset so we re-detect
 
     @property
     def is_configured(self) -> bool:
         return bool(self._host and self._api_key)
 
-    def _build_headers(self) -> dict:
-        headers = {"Content-Type": "application/json"}
-        if self._api_key and self._api_secret:
-            headers["Authorization"] = f"{self._api_key} {self._api_secret}"
-        elif self._api_key:
-            headers["Authorization"] = self._api_key
-        return headers
+    def _parse_host(self) -> tuple[str, str]:
+        """Return (scheme, host) from self._host.
 
-    def _base_url(self, version: str = "") -> str:
-        v = version or self._api_version or "v2"
-        scheme = "https"
-        host = self._host
-        # Strip any existing scheme
+        If user provided a scheme (http:// or https://), use it.
+        Otherwise, store None so we can auto-detect.
+        """
+        host = self._host.rstrip("/")
         if host.startswith("http://"):
-            scheme = "http"
-            host = host[7:]
-        elif host.startswith("https://"):
-            host = host[8:]
-        return f"{scheme}://{host}/api/{v}"
+            return "http", host[7:]
+        if host.startswith("https://"):
+            return "https", host[8:]
+        return "", host  # no scheme — will auto-detect
 
-    async def _detect_api_version(self):
-        """Try v2 first, fall back to v1."""
-        if self._api_version:
-            return
-        headers = self._build_headers()
-        async with httpx.AsyncClient(verify=self._verify_ssl) as client:
-            for ver in ("v2", "v1"):
-                try:
-                    resp = await client.get(
-                        f"{self._base_url(ver)}/status/system",
-                        headers=headers, timeout=10,
-                    )
+    @property
+    def base_url(self) -> str:
+        scheme, host = self._parse_host()
+        if not scheme:
+            scheme = self._detected_scheme or "https"
+        return f"{scheme}://{host}/api/v2"
+
+    def _build_headers(self) -> dict:
+        return {
+            "Content-Type": "application/json",
+            "X-API-Key": self._api_key,
+        }
+
+    async def _detect_scheme(self, host: str) -> str:
+        """Try HTTP then HTTPS to see which one pfSense responds on."""
+        for scheme in ("http", "https"):
+            try:
+                url = f"{scheme}://{host}/api/v2/status/system"
+                async with httpx.AsyncClient(verify=False) as client:
+                    resp = await client.get(url, headers=self._build_headers(), timeout=5)
                     if resp.status_code < 500:
-                        self._api_version = ver
-                        logger.info(f"pfSense REST API detected version: {ver}")
-                        return
-                except Exception:
-                    continue
-        # Default to v2 if detection fails
-        self._api_version = "v2"
-        logger.warning("pfSense API version detection failed, defaulting to v2")
+                        logger.info(f"pfSense detected scheme: {scheme} (status {resp.status_code})")
+                        return scheme
+            except Exception:
+                continue
+        return "https"  # fallback
 
-    async def _get(self, path: str) -> dict:
+    async def _get(self, path: str) -> dict | list:
         if not self.is_configured:
             raise RuntimeError("pfSense not configured")
-        await self._detect_api_version()
+
+        # Auto-detect http vs https if user didn't specify a scheme
+        scheme, host = self._parse_host()
+        if not scheme and not self._detected_scheme:
+            self._detected_scheme = await self._detect_scheme(host)
+
         headers = self._build_headers()
-        url = f"{self._base_url()}{path}"
+        url = f"{self.base_url}{path}"
         logger.debug(f"pfSense API GET {url}")
-        async with httpx.AsyncClient(verify=self._verify_ssl) as client:
-            resp = await client.get(url, headers=headers, timeout=15)
-            resp.raise_for_status()
-            body = resp.json()
-        # pfSense REST API wraps responses in {"data": ...}
+        try:
+            async with httpx.AsyncClient(verify=self._verify_ssl) as client:
+                resp = await client.get(url, headers=headers, timeout=15)
+                if resp.status_code != 200:
+                    body_text = resp.text[:500]
+                    logger.error(f"pfSense API {resp.status_code} from {url}: {body_text}")
+                    resp.raise_for_status()
+                body = resp.json()
+        except httpx.ConnectError as e:
+            logger.error(f"pfSense connection failed to {url}: {e}")
+            raise RuntimeError(f"Cannot connect to pfSense at {url}") from e
+        except httpx.TimeoutException as e:
+            logger.error(f"pfSense timeout on {url}: {e}")
+            raise RuntimeError(f"pfSense request timed out ({url})") from e
+        # pfrest wraps responses: {"code":200, "status":"ok", "data": ...}
         if isinstance(body, dict) and "data" in body:
             return body["data"]
         return body
 
-    async def get_interfaces(self) -> list:
-        data = await self._get("/interface")
-        # v2 returns a list, v1 might return a dict keyed by interface name
+    def _to_list(self, data) -> list:
+        if isinstance(data, list):
+            return data
         if isinstance(data, dict):
             return list(data.values()) if data else []
-        return data if isinstance(data, list) else []
-
-    async def get_firewall_rules(self) -> list:
-        data = await self._get("/firewall/rule")
-        if isinstance(data, dict):
-            return list(data.values()) if data else []
-        return data if isinstance(data, list) else []
-
-    async def get_dhcp_leases(self) -> list:
-        # Try different endpoints for DHCP leases
-        for path in ("/services/dhcpd/lease", "/dhcp/lease", "/services/dhcpd"):
-            try:
-                data = await self._get(path)
-                if isinstance(data, dict):
-                    return list(data.values()) if data else []
-                return data if isinstance(data, list) else []
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 404:
-                    continue
-                raise
         return []
 
+    # ---- Status endpoints (read-only) ----
+
+    async def get_system_info(self) -> dict:
+        data = await self._get("/status/system")
+        return data if isinstance(data, dict) else {}
+
+    async def get_interfaces(self) -> list:
+        """GET /api/v2/status/interfaces — live interface status."""
+        data = await self._get("/status/interfaces")
+        return self._to_list(data)
+
     async def get_gateways(self) -> list:
-        data = await self._get("/routing/gateway")
-        if isinstance(data, dict):
-            return list(data.values()) if data else []
-        return data if isinstance(data, list) else []
+        """GET /api/v2/status/gateways — live gateway status."""
+        data = await self._get("/status/gateways")
+        return self._to_list(data)
+
+    async def get_dhcp_leases(self) -> list:
+        """GET /api/v2/status/dhcp_server/leases — active DHCP leases."""
+        try:
+            data = await self._get("/status/dhcp_server/leases")
+            return self._to_list(data)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                return []
+            raise
+
+    async def get_arp_table(self) -> list:
+        """GET /api/v2/diagnostics/arp_table — ARP table."""
+        try:
+            data = await self._get("/diagnostics/arp_table")
+            return self._to_list(data)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                return []
+            raise
+
+    # ---- Config endpoints ----
+
+    async def get_firewall_rules(self) -> list:
+        data = await self._get("/firewall/rules")
+        return self._to_list(data)
+
+    async def get_gateway_config(self) -> list:
+        """GET /api/v2/routing/gateways — configured gateways."""
+        data = await self._get("/routing/gateways")
+        return self._to_list(data)
 
     async def get_openvpn_status(self) -> list:
         try:
-            data = await self._get("/openvpn/server")
-            if isinstance(data, dict):
-                return list(data.values()) if data else []
-            return data if isinstance(data, list) else []
+            data = await self._get("/status/openvpn/servers")
+            return self._to_list(data)
         except httpx.HTTPStatusError:
             return []
 
-    async def get_system_info(self) -> dict:
-        # Try status/system first (more info), fall back to system/info
-        for path in ("/status/system", "/system/info"):
-            try:
-                data = await self._get(path)
-                if isinstance(data, dict):
-                    return data
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 404:
-                    continue
-                raise
-        return {}
+    async def get_services(self) -> list:
+        """GET /api/v2/status/services — running services."""
+        try:
+            data = await self._get("/status/services")
+            return self._to_list(data)
+        except httpx.HTTPStatusError:
+            return []
 
 
 class PfSenseSnmpClient:

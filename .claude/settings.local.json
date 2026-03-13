@@ -37,7 +37,11 @@
       "Bash(curl -sL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/tools.func)",
       "Bash(curl -sL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/install/dashy-install.sh)",
       "Bash(curl -sL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/install/nginx-proxy-manager-install.sh)",
-      "Bash(curl -sL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/core.func | grep -n \"cleanup_lxc\" | head -5)"
+      "Bash(curl -sL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/core.func | grep -n \"cleanup_lxc\" | head -5)",
+      "WebFetch(domain:www.sonicwall.com)",
+      "WebFetch(domain:www.scribd.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:nsm-uswest.sonicwall.com)"
     ]
   }
 }

@@ -195,15 +195,34 @@ msg_ok "Container $CTID created"
 msg_info "Starting container..."
 pct start "$CTID"
 
-# Wait for network
+# Wait for network (connectivity + DNS)
 msg_info "Waiting for network..."
+NETWORK_UP=false
 for i in $(seq 1 30); do
-    if pct exec "$CTID" -- ping -c1 -W1 8.8.8.8 &>/dev/null; then
+    if pct exec "$CTID" -- ping -c1 -W2 8.8.8.8 &>/dev/null; then
+        NETWORK_UP=true
+        break
+    fi
+    sleep 1
+done
+if [[ "$NETWORK_UP" != "true" ]]; then
+    msg_error "Container has no network connectivity. Check bridge and DHCP/IP settings."
+    exit 1
+fi
+
+# Wait for DNS resolution
+for i in $(seq 1 15); do
+    if pct exec "$CTID" -- bash -c "getent hosts github.com" &>/dev/null; then
         break
     fi
     sleep 1
 done
 msg_ok "Network is up"
+
+# --- Bootstrap: install curl inside the container ---
+msg_info "Installing curl inside container..."
+pct exec "$CTID" -- bash -c "apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq curl >/dev/null 2>&1"
+msg_ok "curl installed"
 
 # --- Run the install script inside the container ---
 msg_info "Running installer inside container (this may take a few minutes)..."
@@ -211,10 +230,20 @@ msg_info "Running installer inside container (this may take a few minutes)..."
 INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/${REPO}/main/install/homelab-dash-install.sh"
 
 pct exec "$CTID" -- bash -c "
+    set -e
     curl -fsSL '${INSTALL_SCRIPT_URL}' -o /tmp/install.sh
+    if [ ! -s /tmp/install.sh ]; then
+        echo 'ERROR: Failed to download install script'
+        exit 1
+    fi
     bash /tmp/install.sh '${REPO}'
     rm -f /tmp/install.sh
 "
+
+if [ $? -ne 0 ]; then
+    msg_error "Installation failed inside container. Check: pct exec $CTID -- journalctl -n 50"
+    exit 1
+fi
 
 # --- Get the container IP ---
 sleep 2

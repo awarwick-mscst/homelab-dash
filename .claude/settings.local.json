@@ -22,7 +22,22 @@
       "WebFetch(domain:pfrest.org)",
       "Bash(npm run:*)",
       "WebFetch(domain:www.cisco.com)",
-      "Bash(find /c/Users/aaron/source/claude/homelab-dash/backend -name \"*network*\" -o -name \"*link*\" -type f | grep -E \"\\\\.\\(py\\)$\")"
+      "Bash(find /c/Users/aaron/source/claude/homelab-dash/backend -name \"*network*\" -o -name \"*link*\" -type f | grep -E \"\\\\.\\(py\\)$\")",
+      "Bash(curl -s https://api.github.com/repos/community-scripts/ProxmoxVE/contents | python -c \"import sys,json; [print\\(x['name'], x['type']\\) for x in json.load\\(sys.stdin\\)]\" 2>/dev/null || curl -s https://api.github.com/repos/community-scripts/ProxmoxVE/contents | python3 -c \"import sys,json; [print\\(x['name'], x['type']\\) for x in json.load\\(sys.stdin\\)]\")",
+      "Bash(curl -s https://api.github.com/repos/community-scripts/ProxmoxVE/contents/ct | python -c \"import sys,json; [print\\(x['name']\\) for x in json.load\\(sys.stdin\\)]\" 2>/dev/null | head -30)",
+      "Bash(curl -s https://api.github.com/repos/community-scripts/ProxmoxVE/contents/install | python -c \"import sys,json; [print\\(x['name']\\) for x in json.load\\(sys.stdin\\)]\" 2>/dev/null | head -30)",
+      "Bash(curl -s https://api.github.com/repos/community-scripts/ProxmoxVE/contents/misc | python -c \"import sys,json; [print\\(x['name']\\) for x in json.load\\(sys.stdin\\)]\" 2>/dev/null | head -20)",
+      "Bash(curl -s https://api.github.com/repos/community-scripts/ProxmoxVE/contents/tools | python -c \"import sys,json; [print\\(x['name']\\) for x in json.load\\(sys.stdin\\)]\" 2>/dev/null | head -20)",
+      "Bash(curl -sL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/build.func)",
+      "Bash(curl -sL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/install.func)",
+      "Bash(curl -sL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/core.func | head -200)",
+      "Bash(curl -sL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/ct/homepage.sh)",
+      "Bash(curl -sL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/ct/homarr.sh)",
+      "Bash(curl -sL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/install/changedetection-install.sh)",
+      "Bash(curl -sL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/tools.func)",
+      "Bash(curl -sL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/install/dashy-install.sh)",
+      "Bash(curl -sL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/install/nginx-proxy-manager-install.sh)",
+      "Bash(curl -sL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/core.func | grep -n \"cleanup_lxc\" | head -5)"
     ]
   }
 }

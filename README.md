@@ -1,41 +1,72 @@
 # Homelab Dashboard
 
-**v0.1.0**
+**v0.3.0**
 
-A self-hosted dashboard for managing and monitoring your homelab. Service monitoring, device inventory, interactive network topology map, nmap scanning, Proxmox & pfSense integration, and a network security advisor — all in one place.
+A self-hosted dashboard for managing and monitoring your homelab. Service monitoring, device inventory, interactive network topology map, nmap scanning, Proxmox & pfSense integration, DNS monitoring, managed switch support, and a network security advisor — all in one place.
+
+## Install on Proxmox
+
+Run this one-liner on your **Proxmox host** to create a Debian 12 LXC and install everything automatically:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/awarwick-mscst/homelab-dash/main/ct/homelab-dash.sh)"
+```
+
+The installer will prompt you for container settings (hostname, CPU, RAM, disk, storage, network) and handle the rest. Once complete, visit the dashboard URL and create your admin account.
+
+### Update
+
+SSH into the LXC container and run:
+
+```bash
+update
+```
+
+Or from the Proxmox host:
+
+```bash
+pct exec <CTID> -- update
+```
+
+This pulls the latest code from GitHub, rebuilds the frontend, updates Python dependencies, and restarts services. Your database and configuration are preserved.
 
 ## Features
 
 - **Service Monitoring** — Track uptime and response times for all your self-hosted services with automatic health checks
-- **Device Inventory** — Maintain a catalog of every device on your network with hostname, IP, MAC, OS, and open ports
-- **Network Topology Map** — Interactive drag-and-drop network diagram built with React Flow, with persistent layout saving
+- **Device Inventory** — Maintain a catalog of every device on your network with hostname, IP, MAC, OS, open ports, and switch port associations
+- **Network Topology Map** — Interactive drag-and-drop network diagram built with React Flow, with persistent layout saving and automatic switch port linking
 - **Network Scanner** — Run nmap scans (ping sweep, port scan, full) from the browser with real-time progress via WebSocket
 - **Proxmox Integration** — View nodes, VMs, and containers; monitor CPU/memory/disk usage; start/stop/reboot guests. Supports both username/password and API token auth.
-- **pfSense Integration** — Browse interfaces, firewall rules, DHCP leases, and VPN status (requires pfSense REST API package)
-- **Network Advisor** — Deterministic rules engine that scores your network security posture and provides actionable recommendations (VLAN segmentation, IoT isolation, risky open ports, DNS filtering, and more)
-- **Dark Mode** — Dark by default, toggle via sidebar. Preference persists across sessions.
+- **pfSense Integration** — System info, interfaces, ARP table, and gateway status via SNMP or REST API
+- **Managed Switch** — Cisco SG250 (and similar) support via SSH — view ports, MAC address table, VLANs, and system info
+- **DNS Monitoring** — Track DNS records (A, CNAME, MX, TXT) for your domains and subdomains with change detection and history. Queries public DNS directly (Cloudflare, Google, OpenDNS).
+- **Network Advisor** — Rules engine that scores your network security posture with downloadable PDF reports and optional AI-enhanced analysis via Ollama
+- **Internet Monitoring** — Dashboard status card showing internet connectivity
+- **Dark Mode** — Dark by default, toggle via sidebar
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Python 3.11+ (tested on 3.13), FastAPI, SQLAlchemy 2.0 (async), SQLite (aiosqlite), Alembic |
+| Backend | Python 3.11+ (tested on 3.13), FastAPI, SQLAlchemy 2.0 (async), SQLite (aiosqlite) |
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui, TanStack Query, Zustand, React Flow |
 | Auth | JWT (python-jose), bcrypt |
-| Scanning | nmap (async subprocess, XML parsing, TCP connect scans) |
+| Scanning | nmap (async subprocess, XML parsing) |
+| DNS | dnspython (async resolver) |
+| Switch | asyncssh (SSH), pysnmp (SNMP) |
+| PDF Reports | fpdf2 |
 | Background Tasks | APScheduler |
 | Real-time | WebSocket |
 
-## Quick Start
+## Development
 
 ### Prerequisites
 
 - Python 3.11+
 - Node.js 18+
 - nmap (for scanning features)
-- Git Bash or WSL (if developing on Windows)
 
-### Development
+### Quick Start
 
 ```bash
 # One command — starts both backend and frontend
@@ -59,62 +90,57 @@ npm run dev                       # http://localhost:5173
 
 On first visit, you'll be prompted to create an admin account.
 
-### Deploy to Debian LXC
+### Manual Deploy (without Proxmox installer)
 
-All deploy scripts must be run from **Git Bash** (not PowerShell) on Windows.
-
-Initial deployment:
+If you prefer to deploy manually to any Debian 12 server or LXC:
 
 ```bash
-./deploy-to-lxc.sh <lxc-ip> [user] [port]
-# e.g. ./deploy-to-lxc.sh 192.168.1.50
+# Initial deployment (from Git Bash on Windows or any bash shell)
+./deploy-to-lxc.sh <host-ip> [user] [port]
+
+# Subsequent updates (preserves database and config)
+./update-lxc.sh <host-ip> [user] [port]
 ```
-
-Subsequent updates (preserves database and config):
-
-```bash
-./update-lxc.sh <lxc-ip> [user] [port]
-```
-
-After updating, hard refresh the browser (Ctrl+Shift+R) to load the new frontend.
-
-The deploy script handles everything: installs system packages, builds the frontend locally, creates a Python venv on the LXC, generates a `.env` with a random secret key, and sets up systemd + nginx.
 
 ## Project Structure
 
 ```
 homelab-dash/
+├── ct/
+│   └── homelab-dash.sh              # Proxmox LXC creator (run on PVE host)
+├── install/
+│   ├── homelab-dash-install.sh      # Fresh install script (runs inside LXC)
+│   └── update.sh                    # Update script (runs inside LXC)
 ├── backend/
 │   ├── pyproject.toml
-│   ├── alembic.ini + alembic/
 │   └── app/
-│       ├── main.py              # FastAPI app, lifespan, CORS
-│       ├── config.py             # Pydantic Settings (.env)
-│       ├── database.py           # Async SQLAlchemy engine + session
-│       ├── dependencies.py       # get_db, get_current_user
-│       ├── models/               # SQLAlchemy models
-│       ├── schemas/              # Pydantic request/response schemas
-│       ├── routers/              # API route handlers
-│       ├── services/             # Business logic + external clients
-│       └── tasks/                # APScheduler jobs
+│       ├── main.py                  # FastAPI app, lifespan, CORS
+│       ├── config.py                # Pydantic Settings (.env)
+│       ├── database.py              # Async SQLAlchemy engine + session
+│       ├── dependencies.py          # get_db, get_current_user
+│       ├── models/                  # SQLAlchemy models
+│       ├── schemas/                 # Pydantic request/response schemas
+│       ├── routers/                 # API route handlers
+│       ├── services/                # Business logic + external clients
+│       └── tasks/                   # APScheduler jobs
 ├── frontend/
 │   ├── package.json
 │   ├── vite.config.ts
 │   └── src/
-│       ├── api/                  # Axios client + per-resource modules
-│       ├── hooks/                # useAuth, useWebSocket
-│       ├── stores/               # Zustand state management
-│       ├── components/           # UI components + layout
-│       ├── pages/                # Route pages
-│       └── types/                # TypeScript interfaces
+│       ├── api/                     # Axios client + per-resource modules
+│       ├── hooks/                   # useAuth, useWebSocket
+│       ├── stores/                  # Zustand state management
+│       ├── components/              # UI components + layout
+│       ├── pages/                   # Route pages
+│       └── types/                   # TypeScript interfaces
 ├── deploy/
-│   ├── install.sh                # Debian LXC installer
-│   ├── homelab-dash-backend.service
-│   ├── homelab-dash.nginx.conf
-│   └── .env.example
-├── start-dev.sh                  # Local dev launcher
-├── deploy-to-lxc.sh             # Initial deployment script (run from Git Bash)
-└── update-lxc.sh                # Update script (preserves data, run from Git Bash)
+│   ├── install.sh                   # Legacy Debian LXC installer
+│   ├── homelab-dash-backend.service # systemd unit
+│   ├── homelab-dash.nginx.conf      # nginx reverse proxy
+│   └── .env.example                 # All config options
+├── start-dev.sh                     # Local dev launcher
+├── deploy-to-lxc.sh                # Manual deployment (from dev machine)
+└── update-lxc.sh                   # Manual update (from dev machine)
 ```
 
 ## Configuration
@@ -123,7 +149,7 @@ All configuration is via environment variables or a `.env` file in `backend/`. S
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `SECRET_KEY` | JWT signing key | (must change) |
+| `SECRET_KEY` | JWT signing key | (auto-generated on install) |
 | `DATABASE_URL` | SQLite connection string | `sqlite+aiosqlite:///./homelab.db` |
 | `PROXMOX_HOST` | Proxmox VE IP/hostname | (optional) |
 | `PROXMOX_TOKEN_ID` | PVE API token ID | (optional) |
@@ -134,7 +160,7 @@ All configuration is via environment variables or a `.env` file in `backend/`. S
 | `NMAP_PATH` | Path to nmap binary | `/usr/bin/nmap` |
 | `HEALTH_CHECK_INTERVAL` | Service check interval (seconds) | `60` |
 
-Proxmox and pfSense credentials can also be configured at runtime via the Settings page. Proxmox supports both username/password and API token authentication. pfSense requires the REST API package — setup instructions are shown on the Settings page.
+Proxmox, pfSense, switch, and DNS settings can also be configured at runtime via the Settings page.
 
 ## License
 

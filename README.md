@@ -32,17 +32,17 @@ This pulls the latest code from GitHub, rebuilds the frontend, updates Python de
 
 ## Features
 
-- **Service Monitoring** — Track uptime and response times for all your self-hosted services with automatic health checks
-- **Device Inventory** — Maintain a catalog of every device on your network with hostname, IP, MAC, OS, open ports, and switch port associations
-- **Network Topology Map** — Interactive drag-and-drop network diagram built with React Flow, with persistent layout saving and automatic switch port linking
-- **Network Scanner** — Run nmap scans (ping sweep, port scan, full) from the browser with real-time progress via WebSocket
-- **Proxmox Integration** — View nodes, VMs, and containers; monitor CPU/memory/disk usage; start/stop/reboot guests. Supports both username/password and API token auth.
-- **pfSense Integration** — System info, interfaces, ARP table, and gateway status via SNMP or REST API
-- **Managed Switch** — Cisco SG250 (and similar) support via SSH — view ports, MAC address table, VLANs, and system info
-- **DNS Monitoring** — Track DNS records (A, CNAME, MX, TXT) for your domains and subdomains with change detection and history. Queries public DNS directly (Cloudflare, Google, OpenDNS).
-- **Network Advisor** — Rules engine that scores your network security posture with downloadable PDF reports and optional AI-enhanced analysis via Ollama
-- **Internet Monitoring** — Dashboard status card showing internet connectivity
-- **Dark Mode** — Dark by default, toggle via sidebar
+- **Service Monitoring** Track uptime and response times for all your self-hosted services with automatic health checks
+- **Device Inventory** Maintain a catalog of every device on your network with hostname, IP, MAC, OS, open ports, and switch port associations
+- **Network Topology Map** Interactive drag-and-drop network diagram built with React Flow, with persistent layout saving and automatic switch port linking
+- **Network Scanner** Run nmap scans (ping sweep, port scan, full) from the browser with real-time progress via WebSocket
+- **Proxmox Integration** View nodes, VMs, and containers; monitor CPU/memory/disk usage; start/stop/reboot guests. Supports both username/password and API token auth.
+- **pfSense Integration** System info, interfaces, ARP table, and gateway status via SNMP or REST API
+- **Managed Switch** Cisco SG250 (and similar) support via SSH — view ports, MAC address table, VLANs, and system info
+- **DNS Monitoring** Track DNS records (A, CNAME, MX, TXT) for your domains and subdomains with change detection and history. Queries public DNS directly (Cloudflare, Google, OpenDNS).
+- **Network Advisor** Rules engine that scores your network security posture with downloadable PDF reports and optional AI-enhanced analysis via Ollama
+- **Internet Monitoring** Dashboard status card showing internet connectivity
+- **Dark Mode** Dark by default, toggle via sidebar
 
 ## Tech Stack
 

@@ -2,7 +2,7 @@
 
 **v0.3.0**
 
-A self-hosted dashboard for managing and monitoring your homelab. Service monitoring, device inventory, interactive network topology map, nmap scanning, Proxmox & pfSense integration, DNS monitoring, managed switch support, and a network security advisor — all in one place.
+A self-hosted dashboard for managing and monitoring your homelab. Service monitoring, device inventory, interactive network topology map, nmap scanning, Proxmox & pfSense integration, DNS monitoring, managed switch support, and a network security advisor, all in one place.
 
 ## Install on Proxmox
 

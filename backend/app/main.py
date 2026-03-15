@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import async_session, migrate_schema
 from app.tasks.scheduler import start_scheduler, stop_scheduler
-from app.routers import auth, services, devices, networks, scans, proxmox, pfsense, unifi, advisor, settings, ws, ollama, switch, dns
+from app.routers import auth, services, devices, networks, scans, proxmox, pfsense, sonicwall, unifi, advisor, settings, ws, ollama, switch, dns
 from app.routers.settings import restore_saved_settings
 
 
@@ -38,6 +38,7 @@ app.include_router(networks.router)
 app.include_router(scans.router)
 app.include_router(proxmox.router)
 app.include_router(pfsense.router)
+app.include_router(sonicwall.router)
 app.include_router(unifi.router)
 app.include_router(switch.router)
 app.include_router(advisor.router)

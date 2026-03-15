@@ -30,6 +30,17 @@ class PfSenseSettings(BaseModel):
     snmp_port: int = 161
 
 
+class SonicWallSettings(BaseModel):
+    host: str
+    mode: str = "api"  # "api" or "snmp"
+    username: str = ""
+    password: str = ""
+    verify_ssl: bool = False
+    port: int = 443
+    community: str = ""
+    snmp_port: int = 161
+
+
 class UniFiSettings(BaseModel):
     host: str
     username: str
@@ -70,6 +81,9 @@ class SettingsResponse(BaseModel):
     pfsense_host: str
     pfsense_configured: bool
     pfsense_mode: str
+    sonicwall_host: str
+    sonicwall_configured: bool
+    sonicwall_mode: str
     unifi_host: str
     unifi_configured: bool
     ollama_host: str

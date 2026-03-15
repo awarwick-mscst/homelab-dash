@@ -8,6 +8,7 @@ import NetworkMapPage from '@/pages/NetworkMapPage'
 import ScannerPage from '@/pages/ScannerPage'
 import ProxmoxPage from '@/pages/ProxmoxPage'
 import PfSensePage from '@/pages/PfSensePage'
+import SonicWallPage from '@/pages/SonicWallPage'
 import UniFiPage from '@/pages/UniFiPage'
 import SwitchPage from '@/pages/SwitchPage'
 import AdvisorPage from '@/pages/AdvisorPage'
@@ -31,6 +32,7 @@ export default function App() {
                 <Route path="/scanner" element={<ScannerPage />} />
                 <Route path="/proxmox" element={<ProxmoxPage />} />
                 <Route path="/pfsense" element={<PfSensePage />} />
+                <Route path="/sonicwall" element={<SonicWallPage />} />
                 <Route path="/unifi" element={<UniFiPage />} />
                 <Route path="/switch" element={<SwitchPage />} />
                 <Route path="/advisor" element={<AdvisorPage />} />

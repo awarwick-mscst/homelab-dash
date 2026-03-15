@@ -15,6 +15,7 @@ const navItems = [
   { path: '/scanner', label: 'Scanner', icon: Scan },
   { path: '/proxmox', label: 'Proxmox', icon: Monitor },
   { path: '/pfsense', label: 'pfSense', icon: Flame },
+  { path: '/sonicwall', label: 'SonicWall', icon: Shield },
   { path: '/unifi', label: 'UniFi', icon: Wifi },
   { path: '/switch', label: 'Switch', icon: Network },
   { path: '/advisor', label: 'Advisor', icon: Shield },

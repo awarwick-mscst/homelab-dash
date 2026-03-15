@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getSettings, updateProxmoxServers, updatePfSenseSettings, updateUniFiSettings, updateOllamaSettings, updateSwitchSettings } from '@/api/settings'
+import { getSettings, updateProxmoxServers, updatePfSenseSettings, updateSonicWallSettings, updateUniFiSettings, updateOllamaSettings, updateSwitchSettings } from '@/api/settings'
 import { getOllamaModels } from '@/api/ollama'
 import { testConnection as testPfSense } from '@/api/pfsense'
+import { testConnection as testSonicWall } from '@/api/sonicwall'
 import { testSwitchConnection } from '@/api/switch'
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -12,6 +13,7 @@ import { Save, Plus, Trash2, Zap } from 'lucide-react'
 
 type ProxmoxAuthMode = 'password' | 'token'
 type PfSenseMode = 'snmp' | 'api'
+type SonicWallMode = 'snmp' | 'api'
 
 interface ProxmoxServerForm {
   id: string
@@ -53,6 +55,12 @@ export default function SettingsPage() {
       if (settings.pfsense_mode) {
         setPfsenseMode(settings.pfsense_mode === 'snmp' ? 'snmp' : 'api')
       }
+      if (settings.sonicwall_mode) {
+        setSonicwallMode(settings.sonicwall_mode === 'snmp' ? 'snmp' : 'api')
+      }
+      if (settings.sonicwall_host) {
+        setSonicwall(prev => ({ ...prev, host: settings.sonicwall_host }))
+      }
       if (settings.switch_host) {
         setSwitchCfg(prev => ({
           ...prev,
@@ -67,6 +75,11 @@ export default function SettingsPage() {
   const [pfsenseMode, setPfsenseMode] = useState<PfSenseMode>('snmp')
   const [pfsense, setPfsense] = useState({
     host: '', api_key: '', api_secret: '', verify_ssl: false,
+    community: 'public', snmp_port: 161,
+  })
+  const [sonicwallMode, setSonicwallMode] = useState<SonicWallMode>('api')
+  const [sonicwall, setSonicwall] = useState({
+    host: '', username: '', password: '', verify_ssl: false, port: 443,
     community: 'public', snmp_port: 161,
   })
   const [unifi, setUnifi] = useState({
@@ -119,6 +132,23 @@ export default function SettingsPage() {
     },
   })
 
+  const sonicwallMutation = useMutation({
+    mutationFn: () => updateSonicWallSettings({
+      host: sonicwall.host,
+      mode: sonicwallMode,
+      username: sonicwallMode === 'api' ? sonicwall.username : '',
+      password: sonicwallMode === 'api' ? sonicwall.password : '',
+      verify_ssl: sonicwall.verify_ssl,
+      port: sonicwall.port,
+      community: sonicwallMode === 'snmp' ? sonicwall.community : '',
+      snmp_port: sonicwall.snmp_port,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+      queryClient.invalidateQueries({ queryKey: ['sonicwall'] })
+    },
+  })
+
   const unifiMutation = useMutation({
     mutationFn: () => updateUniFiSettings(unifi),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings'] }),
@@ -141,6 +171,7 @@ export default function SettingsPage() {
   })
 
   const pfTestMutation = useMutation({ mutationFn: testPfSense })
+  const swTestMutation = useMutation({ mutationFn: testSonicWall })
   const switchTestMutation = useMutation({
     mutationFn: async () => {
       // Auto-save before testing so the backend has the latest config
@@ -184,6 +215,17 @@ export default function SettingsPage() {
                 )}
                 <Badge variant={settings.pfsense_configured ? 'success' : 'secondary'}>
                   {settings.pfsense_configured ? 'Connected' : 'Not configured'}
+                </Badge>
+              </div>
+            </div>
+            <div className="flex justify-between items-center">
+              <span>SonicWall</span>
+              <div className="flex gap-2 items-center">
+                {settings.sonicwall_mode && (
+                  <Badge variant="outline">{settings.sonicwall_mode.toUpperCase()}</Badge>
+                )}
+                <Badge variant={settings.sonicwall_configured ? 'success' : 'secondary'}>
+                  {settings.sonicwall_configured ? 'Connected' : 'Not configured'}
                 </Badge>
               </div>
             </div>
@@ -400,6 +442,135 @@ export default function SettingsPage() {
             </div>
             {pfTestMutation.data && (() => {
               const r = pfTestMutation.data as Record<string, string | number | boolean>
+              return (
+                <div className="rounded-md border p-4 space-y-2 mt-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant={r.ok ? 'success' : 'destructive'}>
+                      {r.ok ? 'Connected' : 'Failed'}
+                    </Badge>
+                    {r.status_code && <span className="text-xs text-muted-foreground">HTTP {String(r.status_code)}</span>}
+                  </div>
+                  {r.url && <p className="text-xs font-mono text-muted-foreground">{String(r.url)}</p>}
+                  {r.error && <p className="text-sm text-destructive">{String(r.error)}</p>}
+                  {r.response_body && (
+                    <pre className="p-2 bg-muted rounded text-xs overflow-x-auto max-h-40 whitespace-pre-wrap">{String(r.response_body)}</pre>
+                  )}
+                </div>
+              )
+            })()}
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* SonicWall Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">SonicWall Configuration</CardTitle>
+          <CardDescription>Connect to your SonicWall firewall via the SonicOS API or SNMP.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant={sonicwallMode === 'api' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setSonicwallMode('api')}
+            >
+              API (Basic Auth)
+            </Button>
+            <Button
+              type="button"
+              variant={sonicwallMode === 'snmp' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setSonicwallMode('snmp')}
+            >
+              SNMP
+            </Button>
+          </div>
+
+          {sonicwallMode === 'api' ? (
+            <div className="rounded-md bg-muted p-4 text-sm space-y-2">
+              <p className="font-medium">SonicOS API Setup</p>
+              <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                <li>Log into your SonicWall web UI</li>
+                <li>Go to <span className="font-mono text-xs">Device &gt; Settings &gt; Administration &gt; SonicOS API</span></li>
+                <li>Check <span className="font-semibold text-foreground">Enable SonicOS API</span></li>
+                <li>Enable <span className="font-semibold text-foreground">RFC-2617 HTTP Basic Access Authentication</span></li>
+                <li>Click <span className="font-semibold text-foreground">Accept</span></li>
+              </ol>
+              <p className="text-xs text-muted-foreground mt-2">
+                Uses HTTP Basic Auth. Only one admin session at a time is allowed;
+                the dashboard logs in, queries, and logs out quickly.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-md bg-muted p-4 text-sm space-y-2">
+              <p className="font-medium">SNMP Setup</p>
+              <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                <li>Log into your SonicWall web UI</li>
+                <li>Go to <span className="font-mono text-xs">Device &gt; Settings &gt; SNMP</span></li>
+                <li>Check <span className="font-semibold text-foreground">Enable SNMP</span></li>
+                <li>Add a community string under <span className="font-semibold text-foreground">Community</span></li>
+                <li>Click <span className="font-semibold text-foreground">Accept</span></li>
+              </ol>
+              <p className="text-xs text-muted-foreground mt-2">
+                SNMP provides system info, interface stats, and ARP table.
+                For VPN status, security services, and licensing info, use API mode.
+              </p>
+            </div>
+          )}
+
+          <form onSubmit={(e) => { e.preventDefault(); sonicwallMutation.mutate() }} className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Host (IP or hostname)</label>
+              <Input placeholder="192.168.1.1" value={sonicwall.host} onChange={(e) => setSonicwall({ ...sonicwall, host: e.target.value })} />
+            </div>
+
+            {sonicwallMode === 'api' ? (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium">Username</label>
+                    <Input placeholder="admin" value={sonicwall.username} onChange={(e) => setSonicwall({ ...sonicwall, username: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium">Password</label>
+                    <Input type="password" value={sonicwall.password} onChange={(e) => setSonicwall({ ...sonicwall, password: e.target.value })} />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">API Port</label>
+                  <Input type="number" placeholder="443" value={sonicwall.port} onChange={(e) => setSonicwall({ ...sonicwall, port: parseInt(e.target.value) || 443 })} className="max-w-[120px]" />
+                </div>
+              </>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Community String</label>
+                  <Input placeholder="public" value={sonicwall.community} onChange={(e) => setSonicwall({ ...sonicwall, community: e.target.value })} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">SNMP Port</label>
+                  <Input type="number" placeholder="161" value={sonicwall.snmp_port} onChange={(e) => setSonicwall({ ...sonicwall, snmp_port: parseInt(e.target.value) || 161 })} />
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button type="submit" disabled={sonicwallMutation.isPending}>
+                <Save className="h-4 w-4 mr-2" />Save
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={swTestMutation.isPending}
+                onClick={() => swTestMutation.mutate()}
+              >
+                <Zap className="h-4 w-4 mr-2" />{swTestMutation.isPending ? 'Testing...' : 'Test Connection'}
+              </Button>
+            </div>
+            {swTestMutation.data && (() => {
+              const r = swTestMutation.data as Record<string, string | number | boolean>
               return (
                 <div className="rounded-md border p-4 space-y-2 mt-2">
                   <div className="flex items-center gap-2">

@@ -9,10 +9,11 @@ from app.models.user import User
 from app.models.app_settings import AppSetting
 from app.config import settings
 from app.schemas.settings import (
-    ProxmoxServerSettings, PfSenseSettings, UniFiSettings, OllamaSettings, SwitchSettings, SettingsResponse, ProxmoxServerInfo,
+    ProxmoxServerSettings, PfSenseSettings, SonicWallSettings, UniFiSettings, OllamaSettings, SwitchSettings, SettingsResponse, ProxmoxServerInfo,
 )
 from app.services.proxmox_client import proxmox_manager
 from app.services import pfsense_client as pfsense_mod
+from app.services import sonicwall_client as sonicwall_mod
 from app.services.unifi_client import unifi_client
 from app.services.ollama_client import ollama_client
 from app.services.switch_client import switch_client
@@ -89,6 +90,25 @@ async def restore_saved_settings(db: AsyncSession):
                 verify_ssl=pf.get("verify_ssl", False),
             )
 
+    sw_sonic = await _load_setting(db, "sonicwall")
+    if sw_sonic and isinstance(sw_sonic, dict):
+        mode = sw_sonic.get("mode", "api")
+        sonicwall_mod.sonicwall_mode = mode
+        if mode == "snmp":
+            sonicwall_mod.sonicwall_snmp_client.update_config(
+                host=sw_sonic.get("host", ""),
+                community=sw_sonic.get("community", "public"),
+                port=sw_sonic.get("snmp_port", 161),
+            )
+        else:
+            sonicwall_mod.sonicwall_client.update_config(
+                host=sw_sonic.get("host", ""),
+                username=sw_sonic.get("username", ""),
+                password=sw_sonic.get("password", ""),
+                verify_ssl=sw_sonic.get("verify_ssl", False),
+                port=sw_sonic.get("port", 443),
+            )
+
     uf = await _load_setting(db, "unifi")
     if uf and isinstance(uf, dict):
         unifi_client.update_config(
@@ -128,6 +148,14 @@ def _pfsense_is_configured() -> bool:
     return False
 
 
+def _sonicwall_is_configured() -> bool:
+    if sonicwall_mod.sonicwall_mode == "snmp":
+        return sonicwall_mod.sonicwall_snmp_client.is_configured
+    elif sonicwall_mod.sonicwall_mode == "api":
+        return sonicwall_mod.sonicwall_client.is_configured
+    return False
+
+
 @router.get("", response_model=SettingsResponse)
 async def get_settings(_: User = Depends(get_current_user)):
     servers = proxmox_manager.list_servers()
@@ -140,6 +168,9 @@ async def get_settings(_: User = Depends(get_current_user)):
         pfsense_host=settings.pfsense_host,
         pfsense_configured=_pfsense_is_configured(),
         pfsense_mode=pfsense_mod.pfsense_mode,
+        sonicwall_host=settings.sonicwall_host,
+        sonicwall_configured=_sonicwall_is_configured(),
+        sonicwall_mode=sonicwall_mod.sonicwall_mode,
         unifi_host=settings.unifi_host,
         unifi_configured=unifi_client.is_configured,
         ollama_host=ollama_client._base_url,
@@ -203,6 +234,34 @@ async def update_pfsense_settings(
         )
 
     await _save_setting(db, "pfsense", data.model_dump())
+    return {"status": "updated", "mode": mode}
+
+
+@router.put("/sonicwall")
+async def update_sonicwall_settings(
+    data: SonicWallSettings,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    mode = data.mode
+    sonicwall_mod.sonicwall_mode = mode
+
+    if mode == "snmp":
+        sonicwall_mod.sonicwall_snmp_client.update_config(
+            host=data.host,
+            community=data.community or "public",
+            port=data.snmp_port,
+        )
+    else:
+        sonicwall_mod.sonicwall_client.update_config(
+            host=data.host,
+            username=data.username,
+            password=data.password,
+            verify_ssl=data.verify_ssl,
+            port=data.port,
+        )
+
+    await _save_setting(db, "sonicwall", data.model_dump())
     return {"status": "updated", "mode": mode}
 
 

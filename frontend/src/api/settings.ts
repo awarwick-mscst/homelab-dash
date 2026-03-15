@@ -30,6 +30,19 @@ export async function updatePfSenseSettings(settings: {
   await api.put('/settings/pfsense', settings)
 }
 
+export async function updateSonicWallSettings(settings: {
+  host: string
+  mode: string
+  username?: string
+  password?: string
+  verify_ssl?: boolean
+  port?: number
+  community?: string
+  snmp_port?: number
+}): Promise<void> {
+  await api.put('/settings/sonicwall', settings)
+}
+
 export async function updateUniFiSettings(settings: {
   host: string
   username: string

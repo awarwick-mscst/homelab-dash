@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     pfsense_snmp_community: str = "public"
     pfsense_snmp_port: int = 161
 
+    # SonicWall
+    sonicwall_host: str = ""
+    sonicwall_username: str = ""
+    sonicwall_password: str = ""
+    sonicwall_verify_ssl: bool = False
+    sonicwall_port: int = 443
+    sonicwall_mode: str = ""  # "api" or "snmp"
+    sonicwall_snmp_community: str = "public"
+    sonicwall_snmp_port: int = 161
+
     # UniFi
     unifi_host: str = ""
     unifi_username: str = ""

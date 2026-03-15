@@ -165,6 +165,9 @@ export interface Settings {
   pfsense_host: string
   pfsense_configured: boolean
   pfsense_mode: string
+  sonicwall_host: string
+  sonicwall_configured: boolean
+  sonicwall_mode: string
   unifi_host: string
   unifi_configured: boolean
   ollama_host: string
@@ -296,6 +299,52 @@ export interface PfSenseOverview {
   system: PfSenseSystemInfo
   interfaces: PfSenseInterface[]
   arp_table: PfSenseArpEntry[]
+  interface_counts: { up: number; down: number; total: number }
+}
+
+export interface SonicWallSystemInfo {
+  hostname: string
+  model?: string
+  firmware?: string
+  serial_number?: string
+  uptime: string
+  uptime_seconds?: number
+  cpu_percent?: number | string
+  mem_percent?: number | string
+  current_connections?: number | string
+  max_connections?: number | string
+  description?: string
+  contact?: string
+  location?: string
+}
+
+export interface SonicWallInterface {
+  index: string
+  name: string
+  alias?: string
+  mtu: number
+  speed: number
+  admin_status: string
+  oper_status: string
+  in_octets: number
+  out_octets: number
+  in_errors: number
+  out_errors: number
+  ip_addresses: string[]
+  zone?: string
+}
+
+export interface SonicWallArpEntry {
+  ip: string
+  mac: string
+  interface: string
+  type: string
+}
+
+export interface SonicWallOverview {
+  system: SonicWallSystemInfo
+  interfaces: SonicWallInterface[]
+  arp_table: SonicWallArpEntry[]
   interface_counts: { up: number; down: number; total: number }
 }
 
